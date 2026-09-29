@@ -8,15 +8,19 @@ import {
   api,
   attendanceApi,
   notificationApi,
+  academicManagementApi,
   type Batch,
   type Course,
   type Exam,
+  type CreateExamPayload,
   type BatchFinanceStats,
   type AttendanceRecord,
   type AttendanceReport,
   type BatchMonthlyAttendance,
   type BatchTeacher,
   type Teacher,
+  type BatchSubject,
+  type Subject,
 } from "@/lib/api";
 import {
   ArrowLeft,
@@ -42,11 +46,27 @@ import {
   X,
   Send,
   AlertCircle,
+  Plus,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 
 type BatchStudent = { id: number; full_name: string; mobile: string; student_id: string; user_id: number | null; amount: number; enrolled_by: string; created_at: string };
 type Tab = "about" | "students" | "schedule" | "exam" | "notice" | "teacher" | "leaderboard" | "earnings" | "attendance";
+
+const SCHEDULE_DAYS = ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
+const ROUTINE_DAYS = SCHEDULE_DAYS.filter((d) => d !== "Fri");
+
+// Renders a stored 24h "HH:MM" as "hh:mmAM/PM" (e.g. "19:00" -> "07:00PM").
+function formatTime12h(t: string): string {
+  const [hStr, mStr] = t.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr);
+  if (!t || Number.isNaN(h) || Number.isNaN(m)) return t;
+  const suffix = h >= 12 ? "PM" : "AM";
+  const displayHour = h % 12 === 0 ? 12 : h % 12;
+  return `${String(displayHour).padStart(2, "0")}:${String(m).padStart(2, "0")}${suffix}`;
+}
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "students", label: "Students", icon: <Users className="w-3.5 h-3.5" /> },
@@ -88,6 +108,10 @@ export default function BatchDetailsPage() {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [course, setCourse] = useState<Course | null>(null);
   const [exams, setExams] = useState<Exam[]>([]);
+  const defaultExamForm = { title: "", date: "", time: "", duration: "", total_marks: 0 };
+  const [showExamModal, setShowExamModal] = useState(false);
+  const [examForm, setExamForm] = useState(defaultExamForm);
+  const [savingExam, setSavingExam] = useState(false);
 
   const [students, setStudents] = useState<BatchStudent[]>([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
@@ -118,6 +142,20 @@ export default function BatchDetailsPage() {
   const [selectedTeacherId, setSelectedTeacherId] = useState("");
   const [assigningTeacher, setAssigningTeacher] = useState(false);
   const [unassigningTeacherId, setUnassigningTeacherId] = useState<number | null>(null);
+
+  const [batchSubjects, setBatchSubjects] = useState<BatchSubject[]>([]);
+  const [classSubjects, setClassSubjects] = useState<Subject[]>([]);
+  const [batchSubjectsLoaded, setBatchSubjectsLoaded] = useState(false);
+  const [batchSubjectsLoading, setBatchSubjectsLoading] = useState(false);
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [selectedSubjectTeacherId, setSelectedSubjectTeacherId] = useState("");
+  const [assignedTeachers, setAssignedTeachers] = useState<BatchTeacher[]>([]);
+  const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
+  const [subjectDays, setSubjectDays] = useState<string[]>([]);
+  const [subjectStartTime, setSubjectStartTime] = useState("");
+  const [subjectEndTime, setSubjectEndTime] = useState("");
+  const [assigningSubject, setAssigningSubject] = useState(false);
+  const [unassigningEntryId, setUnassigningEntryId] = useState<number | null>(null);
 
   type BatchNotice = { id: number; title: string; body: string; sent_at: string };
   const [noticeTitle, setNoticeTitle] = useState("");
@@ -245,6 +283,105 @@ export default function BatchDetailsPage() {
     }
   };
 
+  const loadBatchSubjects = useCallback(async () => {
+    const token = getToken();
+    if (!token || !batch) return;
+    setBatchSubjectsLoading(true);
+    try {
+      // Subjects aren't reliably linked to a class in Academic Management
+      // (that link only exists via a Book row, which admins usually skip
+      // when just adding a subject), so scoping this list by class would
+      // silently hide subjects that were added but never got a book.
+      // Show every subject instead.
+      const [assigned, allSubjects, teachers] = await Promise.all([
+        batchApi.getBatchSubjects(token, batch.id),
+        academicManagementApi.getSubjects(token),
+        batchApi.getBatchTeachers(token, batch.id),
+      ]);
+      setBatchSubjects(assigned);
+      setClassSubjects(allSubjects);
+      setAssignedTeachers(teachers);
+      setBatchSubjectsLoaded(true);
+    } catch {
+      toast.error("Failed to load subjects");
+    } finally {
+      setBatchSubjectsLoading(false);
+    }
+  }, [batch]);
+
+  const toggleSubjectDay = (day: string) => {
+    setSubjectDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
+  };
+
+  const handleAssignSubject = async () => {
+    if (!selectedSubjectId || !batch) return;
+    const token = getToken();
+    if (!token) return;
+    setAssigningSubject(true);
+    try {
+      const payload = {
+        subject_id: Number(selectedSubjectId),
+        teacher_id: selectedSubjectTeacherId ? Number(selectedSubjectTeacherId) : null,
+        days: subjectDays,
+        start_time: subjectStartTime,
+        end_time: subjectEndTime,
+      };
+      if (editingEntryId) {
+        await batchApi.updateSubjectEntry(token, batch.id, editingEntryId, payload);
+        toast.success("Schedule updated");
+      } else {
+        await batchApi.assignSubject(token, batch.id, payload);
+        toast.success("Subject assigned");
+      }
+      setSelectedSubjectId("");
+      setSelectedSubjectTeacherId("");
+      setSubjectDays([]);
+      setSubjectStartTime("");
+      setSubjectEndTime("");
+      setEditingEntryId(null);
+      const assigned = await batchApi.getBatchSubjects(token, batch.id);
+      setBatchSubjects(assigned);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to assign subject");
+    } finally {
+      setAssigningSubject(false);
+    }
+  };
+
+  const handleEditSubject = (s: BatchSubject) => {
+    setEditingEntryId(s.id);
+    setSelectedSubjectId(String(s.subject_id));
+    setSelectedSubjectTeacherId(s.teacher_id ? String(s.teacher_id) : "");
+    setSubjectDays(s.days);
+    setSubjectStartTime(s.start_time);
+    setSubjectEndTime(s.end_time);
+  };
+
+  const cancelEditSubject = () => {
+    setEditingEntryId(null);
+    setSelectedSubjectId("");
+    setSelectedSubjectTeacherId("");
+    setSubjectDays([]);
+    setSubjectStartTime("");
+    setSubjectEndTime("");
+  };
+
+  const handleUnassignSubject = async (entryId: number) => {
+    const token = getToken();
+    if (!token || !batch) return;
+    setUnassigningEntryId(entryId);
+    try {
+      await batchApi.unassignSubject(token, batch.id, entryId);
+      setBatchSubjects((prev) => prev.filter((s) => s.id !== entryId));
+      toast.success("Subject unassigned");
+      if (editingEntryId === entryId) cancelEditSubject();
+    } catch {
+      toast.error("Failed to unassign subject");
+    } finally {
+      setUnassigningEntryId(null);
+    }
+  };
+
   const loadNotices = useCallback(async () => {
     const token = getToken();
     if (!token || !batch) return;
@@ -300,6 +437,42 @@ export default function BatchDetailsPage() {
     }
   };
 
+  const openCreateExam = () => {
+    setExamForm(defaultExamForm);
+    setShowExamModal(true);
+  };
+
+  const handleCreateExam = async () => {
+    if (!batch) return;
+    if (!examForm.title || !examForm.date || !examForm.time || !examForm.duration) {
+      toast.error("All exam fields are required");
+      return;
+    }
+    const token = getToken();
+    if (!token) return;
+    setSavingExam(true);
+    try {
+      const payload: CreateExamPayload = {
+        title: examForm.title,
+        course_id: batch.course_id,
+        batch_id: batch.id,
+        date: examForm.date,
+        time: examForm.time,
+        duration: examForm.duration,
+        total_marks: Number(examForm.total_marks) || 0,
+      };
+      const created = await api.createExam(token, payload);
+      setExams((prev) => [created, ...prev]);
+      toast.success("Exam created — now add questions");
+      setShowExamModal(false);
+      router.push(`/admin/exams/${created.id}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create exam");
+    } finally {
+      setSavingExam(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === "earnings" && !financeStats && !financeLoading) {
       loadFinance();
@@ -316,7 +489,10 @@ export default function BatchDetailsPage() {
     if (activeTab === "notice" && !noticesLoaded && !noticesLoading) {
       loadNotices();
     }
-  }, [activeTab, attDate, attView, attMonth, financeStats, financeLoading, loadFinance, loadAttendance, loadMonthlyAttendance, batchTeachersLoaded, batchTeachersLoading, loadBatchTeachers, noticesLoaded, noticesLoading, loadNotices]);
+    if (activeTab === "schedule" && !batchSubjectsLoaded && !batchSubjectsLoading) {
+      loadBatchSubjects();
+    }
+  }, [activeTab, attDate, attView, attMonth, financeStats, financeLoading, loadFinance, loadAttendance, loadMonthlyAttendance, batchTeachersLoaded, batchTeachersLoading, loadBatchTeachers, noticesLoaded, noticesLoading, loadNotices, batchSubjectsLoaded, batchSubjectsLoading, loadBatchSubjects]);
 
   useEffect(() => {
     if (!isAuthenticated()) { router.push("/admin/login"); return; }
@@ -443,6 +619,25 @@ export default function BatchDetailsPage() {
         return (s.full_name || "").toLowerCase().includes(q) || s.mobile.includes(q);
       })
     : students;
+
+  // Build a day-by-time routine grid: rows are the 6 class days (Friday is
+  // the weekend day, excluded), columns are every distinct start/end time
+  // slot in use across the batch's subjects, sorted chronologically.
+  const routineTimeSlots = Array.from(
+    new Set(
+      batchSubjects
+        .filter((s) => s.start_time || s.end_time)
+        .map((s) => `${s.start_time}|${s.end_time}`)
+    )
+  )
+    .map((key) => {
+      const [start_time, end_time] = key.split("|");
+      return { key, start_time, end_time };
+    })
+    .sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+  const routineCell = (day: string, slotKey: string) =>
+    batchSubjects.filter((s) => s.days.includes(day) && `${s.start_time}|${s.end_time}` === slotKey);
 
   if (loading) {
     return <div className="py-24 text-center text-muted-foreground">Loading...</div>;
@@ -660,17 +855,194 @@ export default function BatchDetailsPage() {
           <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
             <div>
               <p className="text-xs text-muted-foreground">Start Time</p>
-              <p className="text-sm font-medium text-foreground">{batch.start_time || "-"}</p>
+              <p className="text-sm font-medium text-foreground">{batch.start_time ? formatTime12h(batch.start_time) : "-"}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">End Time</p>
-              <p className="text-sm font-medium text-foreground">{batch.end_time || "-"}</p>
+              <p className="text-sm font-medium text-foreground">{batch.end_time ? formatTime12h(batch.end_time) : "-"}</p>
             </div>
           </div>
           {batch.schedule && (
             <div className="pt-2 border-t border-border">
               <p className="text-xs text-muted-foreground">Summary</p>
               <p className="text-sm font-medium text-foreground">{batch.schedule}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Subjects & per-subject class times */}
+      {activeTab === "schedule" && (
+        <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="font-semibold text-foreground">Subjects &amp; Class Times</h3>
+              <p className="text-xs text-muted-foreground">Subjects taught in this batch, each with its own weekly day/time slot and teacher</p>
+            </div>
+            {editingEntryId && (
+              <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-primary/10 text-primary">Editing schedule</span>
+            )}
+          </div>
+
+          <div className="px-6 py-4 border-b border-border space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1.5">Subject</label>
+                <select
+                  value={selectedSubjectId}
+                  onChange={(e) => setSelectedSubjectId(e.target.value)}
+                  className="w-full px-3 py-2 pr-8 rounded-xl bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 appearance-none"
+                >
+                  <option value="">Select a subject...</option>
+                  {classSubjects.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1.5">Teacher</label>
+                <select
+                  value={selectedSubjectTeacherId}
+                  onChange={(e) => setSelectedSubjectTeacherId(e.target.value)}
+                  className="w-full px-3 py-2 pr-8 rounded-xl bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 appearance-none"
+                >
+                  <option value="">No teacher assigned</option>
+                  {assignedTeachers.map((t) => (
+                    <option key={t.id} value={t.id}>{t.full_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-[auto_auto_1fr] gap-3 items-end">
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1.5">Start Time</label>
+                <input
+                  type="time"
+                  value={subjectStartTime}
+                  onChange={(e) => setSubjectStartTime(e.target.value)}
+                  className="px-3 py-2 rounded-xl bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1.5">End Time</label>
+                <input
+                  type="time"
+                  value={subjectEndTime}
+                  onChange={(e) => setSubjectEndTime(e.target.value)}
+                  className="px-3 py-2 rounded-xl bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                {editingEntryId && (
+                  <button
+                    onClick={cancelEditSubject}
+                    className="px-3 py-2 rounded-xl bg-secondary text-secondary-foreground text-sm font-medium hover:bg-secondary/80 transition-all"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  onClick={handleAssignSubject}
+                  disabled={!selectedSubjectId || assigningSubject}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {assigningSubject ? <Loader2 className="w-4 h-4 animate-spin" /> : editingEntryId ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  {editingEntryId ? "Update" : "Add"}
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SCHEDULE_DAYS.map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => toggleSubjectDay(day)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    subjectDays.includes(day)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-secondary text-secondary-foreground border-transparent hover:bg-secondary/80"
+                  }`}
+                >
+                  {day}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {batchSubjectsLoading ? (
+            <div className="py-12 text-center text-muted-foreground">Loading...</div>
+          ) : batchSubjects.length === 0 ? (
+            <div className="py-12 text-center">
+              <BookOpen className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+              <p className="text-muted-foreground">No subjects assigned to this batch yet</p>
+            </div>
+          ) : routineTimeSlots.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-muted-foreground">Assigned subjects have no day/time set yet</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-secondary/50 text-left text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="px-6 py-3 font-medium whitespace-nowrap">Day</th>
+                    {routineTimeSlots.map((slot) => (
+                      <th key={slot.key} className="px-3 py-3 font-medium whitespace-nowrap border-l border-border">
+                        {slot.start_time || slot.end_time ? `${formatTime12h(slot.start_time)} - ${formatTime12h(slot.end_time)}` : "No time set"}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {ROUTINE_DAYS.map((day) => (
+                    <tr key={day} className="hover:bg-secondary/20">
+                      <td className="px-6 py-3 font-medium text-foreground whitespace-nowrap">{day}</td>
+                      {routineTimeSlots.map((slot) => {
+                        const cellSubjects = routineCell(day, slot.key);
+                        return (
+                          <td key={slot.key} className="px-3 py-2 border-l border-border align-top">
+                            {cellSubjects.length === 0 ? (
+                              <span className="text-muted-foreground">-</span>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {cellSubjects.map((s) => (
+                                  <button
+                                    key={s.id}
+                                    onClick={() => handleEditSubject(s)}
+                                    title="Click to edit this class"
+                                    className="block w-full text-left px-2 py-1.5 rounded-lg hover:bg-primary/10 transition-colors"
+                                  >
+                                    <p className="text-sm font-medium text-foreground whitespace-nowrap">{s.subject_name}</p>
+                                    {s.teacher_name && (
+                                      <p className="text-xs text-muted-foreground whitespace-nowrap">
+                                        ({s.teacher_name.trim().split(/\s+/).pop()})
+                                      </p>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {editingEntryId && (
+            <div className="px-6 py-3 border-t border-border flex items-center justify-between gap-3 bg-secondary/20">
+              <p className="text-xs text-muted-foreground">Editing this subject&apos;s schedule — use the form above to update, or remove it entirely.</p>
+              <button
+                onClick={() => handleUnassignSubject(editingEntryId)}
+                disabled={unassigningEntryId === editingEntryId}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-destructive hover:bg-destructive/10 text-xs font-medium transition-colors disabled:opacity-50 shrink-0"
+              >
+                {unassigningEntryId === editingEntryId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Remove subject
+              </button>
             </div>
           )}
         </div>
@@ -1003,9 +1375,18 @@ export default function BatchDetailsPage() {
       {/* Exam */}
       {activeTab === "exam" && (
         <div className="bg-card rounded-2xl border border-border overflow-hidden">
-          <div className="px-6 py-4 border-b border-border">
-            <h3 className="font-semibold text-foreground">Exams ({exams.length})</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Exams for this batch&apos;s course</p>
+          <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-foreground">Exams ({exams.length})</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Exams for this batch&apos;s course</p>
+            </div>
+            <button
+              onClick={openCreateExam}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-primary to-primary-dark text-white font-medium text-xs shadow-primary hover:shadow-lg transition-all shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Exam
+            </button>
           </div>
           {exams.length === 0 ? (
             <div className="py-12 text-center">
@@ -1015,18 +1396,112 @@ export default function BatchDetailsPage() {
           ) : (
             <div className="divide-y divide-border">
               {exams.map((e) => (
-                <div key={e.id} className="flex items-center justify-between px-6 py-3 hover:bg-secondary/50">
+                <button
+                  key={e.id}
+                  onClick={() => router.push(`/admin/exams/${e.id}`)}
+                  className="w-full flex items-center justify-between px-6 py-3 hover:bg-secondary/50 text-left transition-colors"
+                >
                   <div>
                     <p className="text-sm font-medium text-foreground">{e.title}</p>
-                    <p className="text-xs text-muted-foreground">{e.date} &middot; {e.total_questions} questions</p>
+                    <p className="text-xs text-muted-foreground">{e.date} &middot; {e.total_questions} questions &middot; {e.total_marks} marks</p>
                   </div>
                   {e.is_live && (
                     <span className="px-2.5 py-1 rounded-full bg-destructive/10 text-destructive text-xs font-bold animate-pulse">LIVE</span>
                   )}
-                </div>
+                </button>
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Create exam modal */}
+      {showExamModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg bg-card rounded-2xl border border-border shadow-lg-custom max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-border shrink-0">
+              <h2 className="text-lg font-semibold text-foreground">Create Exam</h2>
+              <button
+                onClick={() => setShowExamModal(false)}
+                className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <p className="text-xs text-muted-foreground -mt-1">
+                For {batch?.name} &middot; {course?.title || batch?.course_name}
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Title *</label>
+                <input
+                  value={examForm.title}
+                  onChange={(e) => setExamForm({ ...examForm, title: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  placeholder="e.g. Mid-term Exam"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Date *</label>
+                  <input
+                    type="date"
+                    value={examForm.date}
+                    onChange={(e) => setExamForm({ ...examForm, date: e.target.value })}
+                    className="w-full px-4 py-2.5 rounded-xl bg-background border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Time *</label>
+                  <input
+                    type="time"
+                    value={examForm.time}
+                    onChange={(e) => setExamForm({ ...examForm, time: e.target.value })}
+                    className="w-full px-4 py-2.5 rounded-xl bg-background border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Duration *</label>
+                  <input
+                    value={examForm.duration}
+                    onChange={(e) => setExamForm({ ...examForm, duration: e.target.value })}
+                    className="w-full px-4 py-2.5 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="e.g. 60 min"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Marks</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={examForm.total_marks}
+                    onChange={(e) => setExamForm({ ...examForm, total_marks: Number(e.target.value) })}
+                    className="w-full px-4 py-2.5 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="e.g. 100"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                You&apos;ll add questions (manually or from the question bank) on the next screen.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-border shrink-0">
+              <button
+                onClick={() => setShowExamModal(false)}
+                className="px-4 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateExam}
+                disabled={savingExam}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-primary to-primary-dark text-white text-sm font-semibold shadow-primary hover:shadow-lg disabled:opacity-50 flex items-center gap-2 transition-all"
+              >
+                {savingExam && <Loader2 className="w-4 h-4 animate-spin" />}
+                Create Exam
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

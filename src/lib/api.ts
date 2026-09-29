@@ -376,6 +376,17 @@ export interface BatchTeacher {
   full_name: string;
 }
 
+export interface BatchSubject {
+  id: number;
+  subject_id: number;
+  subject_name: string;
+  teacher_id: number | null;
+  teacher_name: string;
+  days: string[];
+  start_time: string;
+  end_time: string;
+}
+
 export interface TeacherBatch {
   id: number;
   name: string;
@@ -384,6 +395,7 @@ export interface TeacherBatch {
   code: string;
   schedule: string;
   student_count: number;
+  course_id: number;
 }
 
 // Teacher self-service (teacher portal profile/password/batches)
@@ -409,11 +421,17 @@ export const teacherApi = {
     request<TeacherBatch[]>("/admin/teacher-batches", { token }),
 };
 
+export interface DailyRegistration {
+  date: string;
+  count: number;
+}
+
 export interface DashboardStats {
   total_users: number;
   verified_users: number;
   total_courses: number;
   total_exams: number;
+  weekly_registrations: DailyRegistration[];
 }
 
 export interface BulkHierarchyResult {
@@ -617,6 +635,7 @@ export interface Exam {
   time: string;
   duration: string;
   total_questions: number;
+  total_marks: number;
   is_live: boolean;
   live_at: string | null;
   class_level: string | null;
@@ -632,7 +651,8 @@ export interface CreateExamPayload {
   date: string;
   time: string;
   duration: string;
-  questions: ExamQuestionPayload[];
+  total_marks?: number;
+  questions?: ExamQuestionPayload[];
 }
 
 export interface ExamQuestion {
@@ -1102,6 +1122,25 @@ export const batchApi = {
   unassignTeacher: (token: string, batchId: number, teacherId: number) =>
     request<{ message: string }>(`/admin/batches/${batchId}/teachers/${teacherId}`, { method: "DELETE", token }),
 
+  // Batch <-> subject assignment + per-subject weekly schedule. A subject
+  // can have multiple entries (different periods), so each schedule slot
+  // is its own row, addressed by its own entry id.
+  getBatchSubjects: (token: string, batchId: number) =>
+    request<BatchSubject[]>(`/admin/batches/${batchId}/subjects`, { token }),
+
+  assignSubject: (token: string, batchId: number, data: { subject_id: number; teacher_id: number | null; days: string[]; start_time: string; end_time: string }) =>
+    request<{ message: string }>(`/admin/batches/${batchId}/subjects`, {
+      method: "POST", body: JSON.stringify(data), token,
+    }),
+
+  updateSubjectEntry: (token: string, batchId: number, entryId: number, data: { subject_id: number; teacher_id: number | null; days: string[]; start_time: string; end_time: string }) =>
+    request<{ message: string }>(`/admin/batches/${batchId}/subjects/${entryId}`, {
+      method: "PUT", body: JSON.stringify(data), token,
+    }),
+
+  unassignSubject: (token: string, batchId: number, entryId: number) =>
+    request<{ message: string }>(`/admin/batches/${batchId}/subjects/${entryId}`, { method: "DELETE", token }),
+
   directEnroll: (token: string, data: { user_id?: number; mobile: string; course_id: number; batch_id: number; amount: number; full_name?: string; student_id?: string; gender?: string; student_class?: string; school?: string; shift?: string; father_name?: string; father_mobile?: string; mother_name?: string; mother_mobile?: string; notification_mobile?: string; address?: string; payment_method?: string; reference?: string }) =>
     request<Enrollment>("/admin/enrollments/direct", { method: "POST", body: JSON.stringify(data), token }),
 };
@@ -1559,4 +1598,159 @@ export const sentenceExerciseApi = {
     request<{ message: string }>(`/admin/sentence-exercises/${id}`, { method: "PUT", body: JSON.stringify(data), token }),
   deleteExercise: (token: string, id: number) =>
     request<{ message: string }>(`/admin/sentence-exercises/${id}`, { method: "DELETE", token }),
+};
+
+export interface OMRPoint {
+  x_mm: number;
+  y_mm: number;
+}
+
+export interface OMRQuestionBubble {
+  question_number: number;
+  option: number;
+  center: OMRPoint;
+}
+
+export interface OMRDigitBubble {
+  digit: number;
+  value: number;
+  center: OMRPoint;
+}
+
+export interface OMRTemplate {
+  page_width_mm: number;
+  page_height_mm: number;
+  marker_size_mm: number;
+  bubble_diameter_mm: number;
+  columns: number;
+  markers: [OMRPoint, OMRPoint, OMRPoint, OMRPoint];
+  roll_digit_count: number;
+  roll_bubbles: OMRDigitBubble[];
+  exam_code_digit_count: number;
+  exam_code_bubbles: OMRDigitBubble[];
+  question_bubbles: OMRQuestionBubble[];
+  content_left_mm: number;
+  content_right_mm: number;
+  content_top_mm: number;
+  info_row_top_mm: number;
+  questions_top_mm: number;
+  warning_bar_height_mm: number;
+  title_height_mm: number;
+  info_row_height_mm: number;
+  section_title_height_mm: number;
+  class_box_left_mm: number;
+  class_box_width_mm: number;
+  roll_box_left_mm: number;
+  roll_box_width_mm: number;
+  subject_code_box_left_mm: number;
+  subject_code_box_width_mm: number;
+  set_box_left_mm: number;
+  set_box_width_mm: number;
+}
+
+export interface OMRExam {
+  id: number;
+  title: string;
+  class_level: string;
+  subject: string;
+  question_count: number;
+  columns: number;
+  exam_code: string;
+  student_count: number;
+  sheet_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OMRQuestion {
+  id: number;
+  omr_exam_id: number;
+  question_number: number;
+  correct_option: number;
+}
+
+export interface OMRStudent {
+  id: number;
+  omr_exam_id: number;
+  roll_number: string;
+  name: string;
+  enrollment_id: number | null;
+}
+
+export interface OMRQuestionOutcome {
+  question_number: number;
+  selected_option: number;
+  correct_option: number;
+  correct: boolean;
+  ambiguous: boolean;
+}
+
+export interface OMRSheet {
+  id: number;
+  omr_exam_id: number;
+  image_path: string;
+  detected_roll_number: string;
+  matched_student_id: number | null;
+  matched_student_name?: string;
+  status: "scored" | "needs_review" | "unreadable";
+  score: number;
+  total_questions: number;
+  detected_exam_code?: string;
+  exam_code_mismatch?: boolean;
+  roll_ambiguous?: boolean;
+  questions?: OMRQuestionOutcome[];
+  student_result_id: number | null;
+  gradebook_synced: boolean;
+  created_at: string;
+}
+
+export const omrApi = {
+  checkScannable: (token: string, questionCount: number, columns: number) =>
+    request<{ scannable: boolean; reason: string; columns: number }>(
+      `/admin/omr/check?question_count=${questionCount}&columns=${columns}`,
+      { token }
+    ),
+  previewTemplate: (token: string, questionCount: number, columns: number) =>
+    request<{ template: OMRTemplate }>(`/admin/omr/template-preview?question_count=${questionCount}&columns=${columns}`, { token }),
+  createExam: (
+    token: string,
+    data: { title: string; class_level?: string; subject?: string; columns?: number; questions: { question_number: number; correct_option: number }[] }
+  ) => request<OMRExam>("/admin/omr/exams", { method: "POST", body: JSON.stringify(data), token }),
+  listExams: (token: string) => request<OMRExam[]>("/admin/omr/exams", { token }),
+  getExam: (token: string, id: number) =>
+    request<{ exam: OMRExam; questions: OMRQuestion[]; students: OMRStudent[] }>(`/admin/omr/exams/${id}`, { token }),
+  getTemplate: (token: string, id: number) =>
+    request<{ template: OMRTemplate; exam_code: string }>(`/admin/omr/exams/${id}/template`, { token }),
+  addStudents: (token: string, id: number, students: { roll_number: string; name?: string }[]) =>
+    request<{ added: number }>(`/admin/omr/exams/${id}/students`, {
+      method: "POST",
+      body: JSON.stringify({ students }),
+      token,
+    }),
+  importRoster: (token: string, id: number, batchId: number) =>
+    request<{ imported: number; without_login: number }>(`/admin/omr/exams/${id}/import-roster`, {
+      method: "POST",
+      body: JSON.stringify({ batch_id: batchId }),
+      token,
+    }),
+  listSheets: (token: string, examId: number) => request<OMRSheet[]>(`/admin/omr/exams/${examId}/sheets`, { token }),
+  getSheet: (token: string, examId: number, sheetId: number) =>
+    request<OMRSheet>(`/admin/omr/exams/${examId}/sheets/${sheetId}`, { token }),
+  updateSheet: (
+    token: string,
+    examId: number,
+    sheetId: number,
+    corrections: { corrections: { question_number: number; corrected_option: number }[]; matched_student_id?: number }
+  ) =>
+    request<OMRSheet>(`/admin/omr/exams/${examId}/sheets/${sheetId}`, {
+      method: "PATCH",
+      body: JSON.stringify(corrections),
+      token,
+    }),
+  uploadSheet: (token: string, image: File, examId?: number) => {
+    const formData = new FormData();
+    formData.append("image", image);
+    if (examId) formData.append("exam_id", String(examId));
+    return request<OMRSheet>("/admin/omr/sheets", { method: "POST", body: formData, token, headers: {} });
+  },
 };

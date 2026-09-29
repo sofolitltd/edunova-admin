@@ -22,15 +22,7 @@ const statCards = [
   { key: "total_exams" as const, label: "Total Exams", icon: FileText, color: "from-warning to-amber-600" },
 ];
 
-const mockChartData = [
-  { name: "Mon", users: 4 },
-  { name: "Tue", users: 7 },
-  { name: "Wed", users: 3 },
-  { name: "Thu", users: 9 },
-  { name: "Fri", users: 5 },
-  { name: "Sat", users: 12 },
-  { name: "Sun", users: 6 },
-];
+const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -96,7 +88,12 @@ export default function DashboardPage() {
         </h2>
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={mockChartData}>
+            <BarChart
+              data={(stats?.weekly_registrations ?? []).map((d) => ({
+                name: dayLabels[new Date(`${d.date}T00:00:00`).getDay()],
+                users: d.count,
+              }))}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis
                 dataKey="name"

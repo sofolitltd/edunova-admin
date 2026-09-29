@@ -8,6 +8,7 @@ import { batchApi, teacherApi } from "@/lib/api";
 export interface BatchOption {
   id: number;
   label: string;
+  course_id: number;
 }
 
 // Shared batch-filter dropdown state for pages rendered under both
@@ -25,9 +26,10 @@ export function useBatchFilter() {
     const token = getToken();
     if (!token) return;
 
-    const toOption = (b: { id: number; name: string; class_level: string; shift?: string }): BatchOption => ({
+    const toOption = (b: { id: number; name: string; class_level: string; shift?: string; course_id: number }): BatchOption => ({
       id: b.id,
       label: `${b.name} (${b.class_level}${b.shift ? ` · ${b.shift}` : ""})`,
+      course_id: b.course_id,
     });
 
     if (isTeacherPortal) {
