@@ -166,6 +166,7 @@ export default function PaymentsPage() {
     const q = search.toLowerCase();
     return (
       p.user_name.toLowerCase().includes(q) ||
+      (p.batch_name || "").toLowerCase().includes(q) ||
       p.receipt_number.toLowerCase().includes(q) ||
       p.transaction_id.toLowerCase().includes(q) ||
       p.method.toLowerCase().includes(q)
@@ -270,6 +271,7 @@ export default function PaymentsPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left px-6 py-3 font-medium text-muted-foreground">Student</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Batch</th>
                   <th className="text-left px-6 py-3 font-medium text-muted-foreground">Amount</th>
                   <th className="text-left px-6 py-3 font-medium text-muted-foreground">Method</th>
                   <th className="text-left px-6 py-3 font-medium text-muted-foreground">Status</th>
@@ -285,6 +287,7 @@ export default function PaymentsPage() {
                       <div className="text-sm font-medium text-foreground">{p.user_name}</div>
                       <div className="text-xs text-muted-foreground">{p.user_mobile}</div>
                     </td>
+                    <td className="px-6 py-4 text-sm text-muted-foreground">{p.batch_name || "-"}</td>
                     <td className="px-6 py-4 text-sm font-bold text-foreground">{formatCurrency(p.amount)}</td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border capitalize ${getMethodStyle(p.method)}`}>

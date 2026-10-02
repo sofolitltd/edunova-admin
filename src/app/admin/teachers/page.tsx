@@ -153,11 +153,20 @@ export default function TeachersPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {teachers.map((teacher) => (
-                  <tr key={teacher.id} className="hover:bg-secondary/30 transition-colors">
+                  <tr
+                    key={teacher.id}
+                    onClick={() => router.push(`/admin/teachers/${teacher.id}`)}
+                    className="hover:bg-secondary/30 transition-colors cursor-pointer"
+                  >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center text-sm font-bold text-success">
-                          {getInitials(teacher.full_name)}
+                        <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center text-sm font-bold text-success overflow-hidden">
+                          {teacher.photo_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={teacher.photo_url} alt={teacher.full_name} className="w-full h-full object-cover" />
+                          ) : (
+                            getInitials(teacher.full_name)
+                          )}
                         </div>
                         <div>
                           <div className="font-medium text-foreground">{teacher.full_name}</div>

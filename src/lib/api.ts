@@ -350,6 +350,30 @@ export const api = {
       token,
       body: JSON.stringify({ password }),
     }),
+
+  getTeacherById: (token: string, id: number) =>
+    request<Teacher>(`/admin/teachers/${id}`, { token }),
+
+  updateTeacher: (
+    token: string,
+    id: number,
+    data: {
+      full_name: string;
+      email: string;
+      phone: string;
+      education: string;
+      bio: string;
+      address: string;
+      photo_url: string;
+      join_date: string | null;
+      leave_date: string | null;
+    }
+  ) =>
+    request<Teacher>(`/admin/teachers/${id}`, {
+      method: "PUT",
+      token,
+      body: JSON.stringify(data),
+    }),
 };
 
 // Types
@@ -366,6 +390,13 @@ export interface Teacher {
   id: number;
   email: string;
   full_name: string;
+  phone: string;
+  education: string;
+  bio: string;
+  address: string;
+  photo_url: string;
+  join_date: string | null;
+  leave_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1344,6 +1375,8 @@ export interface Payment {
   enrollment_id: number;
   course_id: number;
   course_name: string;
+  batch_id: number;
+  batch_name: string;
   amount: number;
   method: string;
   transaction_id: string;
@@ -1419,14 +1452,15 @@ export const lessonApi = {
 };
 
 export const paymentApi = {
-  getPayments: (token: string, status?: string, userId?: number) => {
+  getPayments: (token: string, status?: string, userId?: number, batchId?: number) => {
     const params = new URLSearchParams();
     if (status) params.set("status", status);
     if (userId) params.set("user_id", String(userId));
+    if (batchId) params.set("batch_id", String(batchId));
     const qs = params.toString();
     return request<Payment[]>(`/admin/payments${qs ? `?${qs}` : ""}`, { token });
   },
-  createPayment: (token: string, data: { user_id: number; enrollment_id?: number; course_id?: number; amount: number; method: string; transaction_id?: string; sender_number?: string; receiver_number?: string; month?: string; year?: number; notes?: string }) =>
+  createPayment: (token: string, data: { user_id: number; enrollment_id?: number; course_id?: number; batch_id?: number; amount: number; method: string; transaction_id?: string; sender_number?: string; receiver_number?: string; month?: string; year?: number; notes?: string }) =>
     request<Payment>("/admin/payments", { method: "POST", body: JSON.stringify(data), token }),
   verify: (token: string, id: number) =>
     request<{ message: string }>(`/admin/payments/${id}/verify`, { method: "PUT", token }),
