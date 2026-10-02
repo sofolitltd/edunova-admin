@@ -15,11 +15,25 @@ import {
   History,
   Trash2,
   ExternalLink,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 
 type SendTarget = "all" | "batch" | "student";
 type Tab = "send" | "history";
+
+interface BatchStudent {
+  id: number;
+  course_id: number;
+  course_name: string;
+  full_name: string;
+  mobile: string;
+  student_id: string;
+  user_id: number | null;
+  amount: number;
+  enrolled_by: string;
+  created_at: string;
+}
 
 interface Notification {
   id: number;
@@ -64,6 +78,16 @@ export default function NotificationsPage() {
   const [batchId, setBatchId] = useState<number>(0);
   const [userId, setUserId] = useState<number>(0);
   const [batches, setBatches] = useState<Batch[]>([]);
+
+  // Specific-student target: batch -> searchable student dropdown
+  const [studentBatchId, setStudentBatchId] = useState<number>(0);
+  const [batchStudents, setBatchStudents] = useState<BatchStudent[]>([]);
+  const [batchStudentsLoading, setBatchStudentsLoading] = useState(false);
+  const [studentQuery, setStudentQuery] = useState("");
+  const [studentDropdownOpen, setStudentDropdownOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<BatchStudent | null>(
+    null
+  );
   const [linkType, setLinkType] = useState("");
   const [linkId, setLinkId] = useState<number>(0);
   const [result, setResult] = useState<{
@@ -130,6 +154,39 @@ export default function NotificationsPage() {
     }
   }, [tab, loadHistory]);
 
+  useEffect(() => {
+    setSelectedStudent(null);
+    setUserId(0);
+    setStudentQuery("");
+    setBatchStudents([]);
+    if (!studentBatchId) return;
+    const token = getToken();
+    if (!token) return;
+    setBatchStudentsLoading(true);
+    batchApi
+      .getBatchStudents(token, studentBatchId)
+      .then((data) => setBatchStudents(data.filter((s) => s.user_id)))
+      .catch(() => toast.error("Failed to load students"))
+      .finally(() => setBatchStudentsLoading(false));
+  }, [studentBatchId]);
+
+  const filteredStudents = batchStudents.filter((s) => {
+    const q = studentQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      s.full_name.toLowerCase().includes(q) ||
+      s.student_id.toLowerCase().includes(q) ||
+      s.mobile.toLowerCase().includes(q)
+    );
+  });
+
+  const selectStudent = (s: BatchStudent) => {
+    setSelectedStudent(s);
+    setUserId(s.user_id as number);
+    setStudentQuery(s.full_name);
+    setStudentDropdownOpen(false);
+  };
+
   const handleSend = async () => {
     if (!title.trim() || !body.trim()) {
       toast.error("Title and message are required");
@@ -140,7 +197,7 @@ export default function NotificationsPage() {
       return;
     }
     if (target === "student" && !userId) {
-      toast.error("Please enter a Student ID");
+      toast.error("Please select a student");
       return;
     }
 
@@ -173,6 +230,10 @@ export default function NotificationsPage() {
       setBody("");
       setLinkType("");
       setLinkId(0);
+      setStudentBatchId(0);
+      setSelectedStudent(null);
+      setUserId(0);
+      setStudentQuery("");
 
       // Refresh stats
       const statsData = await notificationApi.getStats(token);
@@ -344,7 +405,8 @@ export default function NotificationsPage() {
                 <option value={0}>-- Choose Batch --</option>
                 {batches.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.name} — {b.course_name || `Course #${b.course_id}`}
+                    {b.name}
+                    {b.course_name ? ` — ${b.course_name}` : ""}
                   </option>
                 ))}
               </select>
@@ -352,17 +414,94 @@ export default function NotificationsPage() {
           )}
 
           {target === "student" && (
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Student User ID
-              </label>
-              <input
-                type="number"
-                value={userId || ""}
-                onChange={(e) => setUserId(Number(e.target.value))}
-                placeholder="Enter student user ID"
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
+            <div className="mb-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Select Batch
+                </label>
+                <select
+                  value={studentBatchId}
+                  onChange={(e) => setStudentBatchId(Number(e.target.value))}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                >
+                  <option value={0}>-- Choose Batch --</option>
+                  {batches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                      {b.course_name ? ` — ${b.course_name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {studentBatchId > 0 && (
+                <div className="relative">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Select Student
+                  </label>
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={studentQuery}
+                      onChange={(e) => {
+                        setStudentQuery(e.target.value);
+                        setSelectedStudent(null);
+                        setUserId(0);
+                        setStudentDropdownOpen(true);
+                      }}
+                      onFocus={() => setStudentDropdownOpen(true)}
+                      onBlur={() =>
+                        setTimeout(() => setStudentDropdownOpen(false), 150)
+                      }
+                      placeholder={
+                        batchStudentsLoading
+                          ? "Loading students..."
+                          : "Search student by name, ID or mobile"
+                      }
+                      disabled={batchStudentsLoading}
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-lg pl-9 pr-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-60"
+                    />
+                    {batchStudentsLoading && (
+                      <Loader2 className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" />
+                    )}
+                  </div>
+
+                  {studentDropdownOpen && !batchStudentsLoading && (
+                    <div className="absolute left-0 right-0 top-full mt-1 z-20 max-h-56 overflow-y-auto bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
+                      {filteredStudents.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                          No matching students
+                        </p>
+                      ) : (
+                        filteredStudents.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onMouseDown={() => selectStudent(s)}
+                            className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 transition"
+                          >
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              {s.full_name}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {s.student_id} · {s.mobile}
+                            </p>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedStudent && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-sm text-indigo-700 dark:text-indigo-400">
+                  <CheckCircle className="w-4 h-4" />
+                  Selected: {selectedStudent.full_name} (
+                  {selectedStudent.student_id})
+                </div>
+              )}
             </div>
           )}
 

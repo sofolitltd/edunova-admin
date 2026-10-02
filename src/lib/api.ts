@@ -553,7 +553,8 @@ export interface User {
   student_class: string;
   shift: string;
   school: string;
-  address: string;
+  present_address: string;
+  permanent_address: string;
   created_at: string;
   updated_at: string;
 }
@@ -690,6 +691,7 @@ export interface Enrollment {
   amount: number;
   sent_from: string;
   sent_to: string;
+  transaction_id: string;
   referral_source: string;
   status: string;
   enrolled_by: string;
@@ -1034,6 +1036,13 @@ export const questionsApi = {
     request<QuestionImport[]>("/admin/imports", { token }),
 };
 
+export interface SmsBalance {
+  balance: number;
+  is_success: boolean;
+  status_message: string;
+  response_code: number;
+}
+
 export const financeApi = {
   getStats: (token: string) =>
     request<FinanceStats>("/admin/finance/stats", { token }),
@@ -1055,6 +1064,47 @@ export const financeApi = {
 
   deleteExpense: (token: string, id: number) =>
     request<{ message: string }>(`/admin/expenses/${id}`, { method: "DELETE", token }),
+};
+
+export interface SmsTemplate {
+  id: number;
+  name: string;
+  body: string;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SendSmsPayload {
+  template_id?: number;
+  message?: string;
+  mobiles?: string[];
+  student_ids?: number[];
+}
+
+export interface SendSmsResult {
+  sent: number;
+  failed: { mobile: string; error: string }[];
+}
+
+export const smsApi = {
+  getBalance: (token: string) =>
+    request<SmsBalance>("/admin/sms/balance", { token }),
+
+  getTemplates: (token: string) =>
+    request<SmsTemplate[]>("/admin/sms/templates", { token }),
+
+  createTemplate: (token: string, data: { name: string; body: string }) =>
+    request<SmsTemplate>("/admin/sms/templates", { method: "POST", body: JSON.stringify(data), token }),
+
+  updateTemplate: (token: string, id: number, data: { name: string; body: string }) =>
+    request<SmsTemplate>(`/admin/sms/templates/${id}`, { method: "PUT", body: JSON.stringify(data), token }),
+
+  deleteTemplate: (token: string, id: number) =>
+    request<{ message: string }>(`/admin/sms/templates/${id}`, { method: "DELETE", token }),
+
+  send: (token: string, data: SendSmsPayload) =>
+    request<SendSmsResult>("/admin/sms/send", { method: "POST", body: JSON.stringify(data), token }),
 };
 
 export const batchApi = {
@@ -1448,6 +1498,43 @@ export const notesApi = {
     request<{ message: string }>(`/admin/notes/${id}`, { method: "DELETE", token }),
 };
 
+export interface PromoCode {
+  id: number;
+  code: string;
+  discount_type: "percentage" | "fixed";
+  discount_value: number;
+  course_id: number | null;
+  course_name?: string;
+  batch_id: number | null;
+  batch_name?: string;
+  max_redemptions: number | null;
+  redemption_count: number;
+  expires_at: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface PromoCodePayload {
+  code: string;
+  discount_type: "percentage" | "fixed";
+  discount_value: number;
+  course_id?: number | null;
+  batch_id?: number | null;
+  max_redemptions?: number | null;
+  expires_at?: string | null;
+  is_active?: boolean;
+}
+
+export const promoCodeApi = {
+  list: (token: string) => request<PromoCode[]>("/admin/promo-codes", { token }),
+  create: (token: string, data: PromoCodePayload) =>
+    request<{ id: number }>("/admin/promo-codes", { method: "POST", body: JSON.stringify(data), token }),
+  update: (token: string, id: number, data: PromoCodePayload) =>
+    request<{ message: string }>(`/admin/promo-codes/${id}`, { method: "PUT", body: JSON.stringify(data), token }),
+  delete: (token: string, id: number) =>
+    request<{ message: string }>(`/admin/promo-codes/${id}`, { method: "DELETE", token }),
+};
+
 export interface DailyContentItem {
   id: number;
   content_type: string;
@@ -1648,6 +1735,18 @@ export interface OMRTemplate {
   set_box_width_mm: number;
 }
 
+export interface OMRDesign {
+  id: number;
+  title: string;
+  class_level: string;
+  subject: string;
+  question_count: number;
+  columns: number;
+  token_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface OMRExam {
   id: number;
   title: string;
@@ -1656,6 +1755,8 @@ export interface OMRExam {
   question_count: number;
   columns: number;
   exam_code: string;
+  omr_design_id: number | null;
+  answer_key_set: boolean;
   student_count: number;
   sheet_count: number;
   created_at: string;
@@ -1666,7 +1767,7 @@ export interface OMRQuestion {
   id: number;
   omr_exam_id: number;
   question_number: number;
-  correct_option: number;
+  correct_option: number | null;
 }
 
 export interface OMRStudent {
@@ -1688,7 +1789,10 @@ export interface OMRQuestionOutcome {
 export interface OMRSheet {
   id: number;
   omr_exam_id: number;
-  image_path: string;
+  // Only set in the response to uploadSheet/uploadSheetWithProgress — a data:
+  // URL of the marked-up sheet, generated in memory and never stored, so a
+  // later listSheets/getSheet won't have it.
+  annotated_preview?: string;
   detected_roll_number: string;
   matched_student_id: number | null;
   matched_student_name?: string;
@@ -1712,15 +1816,30 @@ export const omrApi = {
     ),
   previewTemplate: (token: string, questionCount: number, columns: number) =>
     request<{ template: OMRTemplate }>(`/admin/omr/template-preview?question_count=${questionCount}&columns=${columns}`, { token }),
-  createExam: (
+  createDesign: (
     token: string,
-    data: { title: string; class_level?: string; subject?: string; columns?: number; questions: { question_number: number; correct_option: number }[] }
-  ) => request<OMRExam>("/admin/omr/exams", { method: "POST", body: JSON.stringify(data), token }),
+    data: { title: string; class_level?: string; subject?: string; columns?: number; question_count: number }
+  ) => request<OMRDesign>("/admin/omr/designs", { method: "POST", body: JSON.stringify(data), token }),
+  listDesigns: (token: string) => request<OMRDesign[]>("/admin/omr/designs", { token }),
+  getDesign: (token: string, id: number) => request<OMRDesign>(`/admin/omr/designs/${id}`, { token }),
+  updateDesign: (
+    token: string,
+    id: number,
+    data: { title: string; class_level?: string; subject?: string; columns?: number; question_count: number }
+  ) => request<OMRDesign>(`/admin/omr/designs/${id}`, { method: "PUT", body: JSON.stringify(data), token }),
+  deleteDesign: (token: string, id: number) => request<{ deleted: boolean }>(`/admin/omr/designs/${id}`, { method: "DELETE", token }),
+  createToken: (token: string, data: { title: string; omr_design_id: number }) =>
+    request<OMRExam>("/admin/omr/exams", { method: "POST", body: JSON.stringify(data), token }),
   listExams: (token: string) => request<OMRExam[]>("/admin/omr/exams", { token }),
+  updateToken: (token: string, id: number, title: string) =>
+    request<{ updated: boolean }>(`/admin/omr/exams/${id}`, { method: "PUT", body: JSON.stringify({ title }), token }),
+  deleteToken: (token: string, id: number) => request<{ deleted: boolean }>(`/admin/omr/exams/${id}`, { method: "DELETE", token }),
   getExam: (token: string, id: number) =>
     request<{ exam: OMRExam; questions: OMRQuestion[]; students: OMRStudent[] }>(`/admin/omr/exams/${id}`, { token }),
   getTemplate: (token: string, id: number) =>
     request<{ template: OMRTemplate; exam_code: string }>(`/admin/omr/exams/${id}/template`, { token }),
+  updateAnswerKey: (token: string, id: number, questions: { question_number: number; correct_option: number }[]) =>
+    request<{ updated: number }>(`/admin/omr/exams/${id}/questions`, { method: "PUT", body: JSON.stringify({ questions }), token }),
   addStudents: (token: string, id: number, students: { roll_number: string; name?: string }[]) =>
     request<{ added: number }>(`/admin/omr/exams/${id}/students`, {
       method: "POST",
@@ -1747,10 +1866,39 @@ export const omrApi = {
       body: JSON.stringify(corrections),
       token,
     }),
-  uploadSheet: (token: string, image: File, examId?: number) => {
+  deleteSheet: (token: string, examId: number, sheetId: number) =>
+    request<{ deleted: boolean }>(`/admin/omr/exams/${examId}/sheets/${sheetId}`, { method: "DELETE", token }),
+  // Uses XMLHttpRequest instead of fetch so the caller can track real
+  // upload progress (fetch has no cross-browser upload-progress event) —
+  // matters here since sheet photos from a phone camera can be a few MB.
+  uploadSheetWithProgress: (token: string, image: File, examId: number | undefined, onProgress: (pct: number) => void) => {
     const formData = new FormData();
     formData.append("image", image);
     if (examId) formData.append("exam_id", String(examId));
-    return request<OMRSheet>("/admin/omr/sheets", { method: "POST", body: formData, token, headers: {} });
+    return new Promise<OMRSheet>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE}/admin/omr/sheets`);
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        let data: unknown;
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          reject(new Error("Invalid response from server"));
+          return;
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(data as OMRSheet);
+        } else {
+          const message = (data as { error?: string })?.error || "Request failed";
+          reject(new Error(message));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Network error"));
+      xhr.send(formData);
+    });
   },
 };

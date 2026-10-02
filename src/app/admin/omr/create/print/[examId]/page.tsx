@@ -36,6 +36,19 @@ export default function PrintOmrPage() {
   return (
     <div>
       <style>{`
+        /* Keeps the preview scrollable on screen without showing a visible
+           scrollbar track — a plain browser scrollbar there reads as part of
+           the page itself (and can end up baked into a screenshot/PDF export
+           of this view), when it's just an on-screen viewing convenience, not
+           part of the actual sheet. */
+        #omr-preview-scroll {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        #omr-preview-scroll::-webkit-scrollbar {
+          display: none;
+        }
+
         @media print {
           /* Browsers drop background-color/background-image by default when
              printing unless told otherwise — but every structural line,

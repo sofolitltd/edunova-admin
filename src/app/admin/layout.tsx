@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { isAuthenticated, getToken, removeToken } from "@/lib/auth";
 import Link from "next/link";
@@ -24,7 +24,6 @@ import {
   BarChart3,
   Layers,
   UserCheck,
-  HelpCircle as HelpCircleIcon,
   Calendar,
   BookMarked,
   CreditCard,
@@ -39,45 +38,90 @@ import {
   GraduationCap as TeacherIcon,
   ScanLine,
   CheckSquare,
+  Ticket,
+  ChevronDown,
+  MessageSquare,
+  Search,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
 const navItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/users", label: "Users", icon: Users },
-  { href: "/admin/courses", label: "Courses", icon: BookOpen },
-  { href: "/admin/batches", label: "Batches", icon: Layers },
-  { href: "/admin/enrollments", label: "Enrollments", icon: ClipboardList },
-  { href: "/admin/exams", label: "Exams", icon: FileText },
-  { href: "/admin/attendance", label: "Attendance", icon: UserCheck },
-  { href: "/admin/results", label: "Results", icon: Award },
-  { href: "/admin/calendar", label: "Calendar", icon: Calendar },
-  { href: "/admin/lessons", label: "Lessons", icon: BookMarked },
-  { href: "/admin/doubts", label: "Doubts", icon: HelpCircle },
 ];
 
-const contentItems = [
-  { href: "/admin/notes", label: "Notes Library", icon: StickyNote },
-  { href: "/admin/daily-content", label: "Daily Content", icon: Lightbulb },
-  { href: "/admin/vocabulary", label: "Vocabulary Booster", icon: Sparkles },
-  { href: "/admin/sentence-exercises", label: "Sentence Practice", icon: PenLine },
-  { href: "/admin/transitions", label: "Transitions", icon: GraduationCap },
-];
+type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> };
+type NavSection = { id: string; label: string; items: NavItem[] };
 
-const financeItems = [
-  { href: "/admin/finance", label: "Finance Dashboard", icon: BarChart3 },
-  { href: "/admin/expenses", label: "Expenses", icon: Wallet },
-  { href: "/admin/payments", label: "Payments", icon: CreditCard },
-];
-
-const hubItems = [
-  { href: "/admin/articles", label: "Parenting Hub", icon: Newspaper },
-  { href: "/admin/notifications", label: "Notifications", icon: Bell },
-];
-
-const omrItems = [
-  { href: "/admin/omr/create", label: "Create OMR", icon: ScanLine },
-  { href: "/admin/omr/evaluate", label: "Evaluate OMR", icon: CheckSquare },
+const sections: NavSection[] = [
+  {
+    id: "academics",
+    label: "Academics",
+    items: [
+      { href: "/admin/academic-management", label: "Curriculum", icon: HelpCircle },
+      { href: "/admin/batches", label: "Batches", icon: Layers },
+      { href: "/admin/enrollments", label: "Enrollments", icon: ClipboardList },
+      { href: "/admin/lessons", label: "Lessons", icon: BookMarked },
+      { href: "/admin/calendar", label: "Calendar", icon: Calendar },
+      { href: "/admin/question-bank", label: "Question Bank", icon: Database },
+      { href: "/admin/courses", label: "Courses", icon: BookOpen },
+    ],
+  },
+  {
+    id: "exams",
+    label: "Exams",
+    items: [
+      { href: "/admin/exams", label: "Exams", icon: FileText },
+      { href: "/admin/results", label: "Results", icon: Award },
+    ],
+  },
+  {
+    id: "students",
+    label: "Students",
+    items: [
+      { href: "/admin/users", label: "Users", icon: Users },
+      { href: "/admin/attendance", label: "Attendance", icon: UserCheck },
+      { href: "/admin/doubts", label: "Doubts", icon: HelpCircle },
+    ],
+  },
+  {
+    id: "finance",
+    label: "Finance",
+    items: [
+      { href: "/admin/finance", label: "Finance Dashboard", icon: BarChart3 },
+      { href: "/admin/expenses", label: "Expenses", icon: Wallet },
+      { href: "/admin/payments", label: "Payments", icon: CreditCard },
+      { href: "/admin/promo-codes", label: "Promo Codes", icon: Ticket },
+    ],
+  },
+  {
+    id: "omr",
+    label: "OMR",
+    items: [
+      { href: "/admin/omr/create", label: "OMR Create", icon: ScanLine },
+      { href: "/admin/omr/token", label: "OMR Token", icon: Ticket },
+      { href: "/admin/omr/evaluate", label: "OMR Evaluate", icon: CheckSquare },
+    ],
+  },
+  {
+    id: "content",
+    label: "Content",
+    items: [
+      { href: "/admin/notes", label: "Notes Library", icon: StickyNote },
+      { href: "/admin/daily-content", label: "Daily Content", icon: Lightbulb },
+      { href: "/admin/vocabulary", label: "Vocabulary Booster", icon: Sparkles },
+      { href: "/admin/sentence-exercises", label: "Sentence Practice", icon: PenLine },
+      { href: "/admin/transitions", label: "Transitions", icon: GraduationCap },
+    ],
+  },
+  {
+    id: "communication",
+    label: "Communication",
+    items: [
+      { href: "/admin/articles", label: "Parenting Hub", icon: Newspaper },
+      { href: "/admin/notifications", label: "Notifications", icon: Bell },
+      { href: "/admin/sms", label: "SMS", icon: MessageSquare },
+    ],
+  },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -88,6 +132,72 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [adminName, setAdminName] = useState("Admin");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminRole, setAdminRole] = useState("");
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [isMac, setIsMac] = useState(false);
+
+  const administrationSection: NavSection | null =
+    adminRole === "master_admin" || adminRole === "admin"
+      ? {
+          id: "administration",
+          label: "Administration",
+          items: [
+            ...(adminRole === "master_admin"
+              ? [{ href: "/admin/admins", label: "Admins", icon: Shield }]
+              : []),
+            { href: "/admin/teachers", label: "Teachers", icon: TeacherIcon },
+          ],
+        }
+      : null;
+
+  const searchableItems = useMemo(() => {
+    const allSections = [...sections, ...(administrationSection ? [administrationSection] : [])];
+    const items = allSections.flatMap((section) =>
+      section.items.map((item) => ({ ...item, section: section.label }))
+    );
+    return [
+      ...navItems.map((item) => ({ ...item, section: "" })),
+      ...items,
+      { href: "/admin/profile", label: "Profile", icon: User, section: "" },
+    ];
+  }, [administrationSection]);
+
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return searchableItems;
+    return searchableItems.filter(
+      (item) => item.label.toLowerCase().includes(q) || item.section.toLowerCase().includes(q)
+    );
+  }, [searchQuery, searchableItems]);
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  };
+
+  const goToSearchResult = (href: string) => {
+    closeSearch();
+    router.push(href);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+      } else if (e.key === "Escape") {
+        closeSearch();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
 
   useEffect(() => {
     if (!isAuthenticated() && pathname !== "/admin/login") {
@@ -100,6 +210,37 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     document.title = "Admin - EduNova";
   }, []);
+
+  useEffect(() => {
+    setIsMac(navigator.platform.includes("Mac"));
+  }, []);
+
+  useEffect(() => {
+    syncOpenSections();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  const syncOpenSections = () => {
+    let stored: Record<string, boolean> = {};
+    try {
+      stored = JSON.parse(localStorage.getItem("edunova_admin_open_sections") || "{}");
+    } catch {}
+    const allSections = [...sections, ...(administrationSection ? [administrationSection] : [])];
+    const activeSection = allSections.find((s) =>
+      s.items.some((item) => pathname === item.href || pathname.startsWith(item.href + "/"))
+    );
+    setOpenSections({ ...stored, ...(activeSection ? { [activeSection.id]: true } : {}) });
+  };
+
+  const toggleSection = (id: string) => {
+    setOpenSections((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try {
+        localStorage.setItem("edunova_admin_open_sections", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const loadAdmin = () => {
     const stored = localStorage.getItem("edunova_admin");
@@ -175,159 +316,50 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             );
           })}
 
-          <div className="pt-3 mt-3 border-t border-border">
-            <p className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Finance
-            </p>
-            {financeItems.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    active
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+          {[...sections, ...(administrationSection ? [administrationSection] : [])].map((section) => {
+            const isOpen = !!openSections[section.id];
+            const hasActive = section.items.some(
+              (item) => pathname === item.href || pathname.startsWith(item.href + "/")
+            );
+            return (
+              <div key={section.id} className="pt-3 mt-3 border-t border-border">
+                <button
+                  onClick={() => toggleSection(section.id)}
+                  className={`flex items-center justify-between w-full px-3 mb-1 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                    hasActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <item.icon className="w-5 h-5" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-
-          <div className="pt-3 mt-3 border-t border-border">
-            <p className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              OMR
-            </p>
-            {omrItems.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    active
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  }`}
-                >
-                  <item.icon className="w-5 h-5" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-
-          <div className="pt-3 mt-3 border-t border-border">
-            <p className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Content
-            </p>
-            {contentItems.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    active
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  }`}
-                >
-                  <item.icon className="w-5 h-5" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-
-          <div className="pt-3 mt-3 border-t border-border">
-            <p className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Resources
-            </p>
-            {hubItems.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    active
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  }`}
-                >
-                  <item.icon className="w-5 h-5" />
-                  {item.label}
-                </Link>
-              );
-            })}
-            <Link
-              href="/admin/question-bank"
-              onClick={() => setSidebarOpen(false)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                pathname === "/admin/question-bank" || pathname.startsWith("/admin/question")
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-              }`}
-            >
-              <Database className="w-5 h-5" />
-              Question Bank
-            </Link>
-            <Link
-              href="/admin/academic-management"
-              onClick={() => setSidebarOpen(false)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                pathname === "/admin/academic-management"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-              }`}
-            >
-              <HelpCircle className="w-5 h-5" />
-              Academic Management
-            </Link>
-          </div>
-
-          {(adminRole === "master_admin" || adminRole === "admin") && (
-            <div className="pt-3 mt-3 border-t border-border">
-              <p className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Administration
-              </p>
-              {adminRole === "master_admin" && (
-                <Link
-                  href="/admin/admins"
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    pathname === "/admin/admins"
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  }`}
-                >
-                  <Shield className="w-5 h-5" />
-                  Admins
-                </Link>
-              )}
-              <Link
-                href="/admin/teachers"
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                  pathname === "/admin/teachers"
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                }`}
-              >
-                <TeacherIcon className="w-5 h-5" />
-                Teachers
-              </Link>
-            </div>
-          )}
+                  {section.label}
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {isOpen && (
+                  <div className="space-y-1 mt-1">
+                    {section.items.map((item) => {
+                      const active =
+                        pathname === item.href || pathname.startsWith(item.href + "/");
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setSidebarOpen(false)}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                            active
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                          }`}
+                        >
+                          <item.icon className="w-5 h-5" />
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         {/* Footer */}
@@ -377,6 +409,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
           <div className="flex items-center gap-3">
             <button
+              onClick={() => setSearchOpen(true)}
+              title={`Search menu (${isMac ? "⌘K" : "Ctrl K"})`}
+              className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+            >
+              <Search className="w-5 h-5" />
+            </button>
+            <button
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
             >
@@ -403,6 +442,51 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">{children}</main>
       </div>
+
+      {/* Search Modal */}
+      {searchOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/50" onClick={closeSearch}>
+          <div
+            className="bg-card rounded-2xl border border-border shadow-xl w-full max-w-lg mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+              <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && searchResults.length > 0) goToSearchResult(searchResults[0].href);
+                }}
+                placeholder="Search menus (e.g. SMS, Question Bank)..."
+                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              />
+              <button onClick={closeSearch} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2">
+              {searchResults.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">No matches</div>
+              ) : (
+                searchResults.map((item) => (
+                  <button
+                    key={item.href}
+                    onClick={() => goToSearchResult(item.href)}
+                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm text-left text-foreground hover:bg-secondary transition-colors"
+                  >
+                    <item.icon className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="flex-1">{item.label}</span>
+                    {item.section && <span className="text-xs text-muted-foreground">{item.section}</span>}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

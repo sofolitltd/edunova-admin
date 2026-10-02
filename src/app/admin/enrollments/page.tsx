@@ -154,7 +154,7 @@ export default function EnrollmentsPage() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            placeholder="Search by name, mobile, or course..."
+            placeholder="Search by name or mobile..."
             className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-card border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
           />
         </div>
@@ -193,7 +193,6 @@ export default function EnrollmentsPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Student</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Course</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Batch</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Payment</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Amount</th>
@@ -211,7 +210,6 @@ export default function EnrollmentsPage() {
                         <p className="text-xs text-muted-foreground">{en.mobile}</p>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-foreground max-w-[200px] truncate">{en.course_name || `Course #${en.course_id}`}</td>
                     <td className="px-4 py-3 text-foreground max-w-[150px] truncate">{en.batch_name || <span className="text-muted-foreground italic">-</span>}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -230,9 +228,16 @@ export default function EnrollmentsPage() {
                       <div className="text-xs">{formatTime(en.created_at)}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border ${statusColors[en.status] || ""}`}>
-                        {statusLabels[en.status] || en.status}
-                      </span>
+                      <select
+                        value={en.status}
+                        disabled={updatingId === en.id}
+                        onChange={(e) => updateStatus(en.id, e.target.value)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium border bg-transparent disabled:opacity-50 cursor-pointer ${statusColors[en.status] || ""}`}
+                      >
+                        <option value="pending">{statusLabels.pending}</option>
+                        <option value="approved">{statusLabels.approved}</option>
+                        <option value="rejected">{statusLabels.rejected}</option>
+                      </select>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
@@ -243,26 +248,6 @@ export default function EnrollmentsPage() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        {en.status === "pending" && (
-                          <>
-                            <button
-                              onClick={() => updateStatus(en.id, "approved")}
-                              disabled={updatingId === en.id}
-                              className="p-1.5 rounded-lg text-muted-foreground hover:text-success hover:bg-success/10 transition-colors disabled:opacity-50"
-                              title="Approve"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => updateStatus(en.id, "rejected")}
-                              disabled={updatingId === en.id}
-                              className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-                              title="Reject"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
                         <button
                           onClick={() => handleDelete(en.id)}
                           className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
@@ -329,10 +314,6 @@ export default function EnrollmentsPage() {
                   <p className="font-medium text-foreground flex items-center gap-1.5"><Phone className="w-4 h-4" /> {detailEnrollment.mobile}</p>
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground">Course</label>
-                <p className="font-medium text-foreground">{detailEnrollment.course_name || `Course #${detailEnrollment.course_id}`}</p>
-              </div>
               {detailEnrollment.batch_name && (
                 <div>
                   <label className="text-xs text-muted-foreground">Batch</label>
@@ -353,7 +334,7 @@ export default function EnrollmentsPage() {
                   <p className="font-bold text-primary text-lg">৳{detailEnrollment.amount.toLocaleString()}</p>
                 </div>
               </div>
-              {detailEnrollment.payment_method === "manual" && (
+              {detailEnrollment.mobile_banking && (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-muted-foreground">Mobile Banking</label>
@@ -363,10 +344,18 @@ export default function EnrollmentsPage() {
                     <label className="text-xs text-muted-foreground">Sent From</label>
                     <p className="font-medium text-foreground">{detailEnrollment.sent_from || "-"}</p>
                   </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Sent To</label>
-                    <p className="font-medium text-foreground">{detailEnrollment.sent_to || "-"}</p>
-                  </div>
+                  {detailEnrollment.sent_to && (
+                    <div>
+                      <label className="text-xs text-muted-foreground">Sent To</label>
+                      <p className="font-medium text-foreground">{detailEnrollment.sent_to}</p>
+                    </div>
+                  )}
+                  {detailEnrollment.transaction_id && (
+                    <div>
+                      <label className="text-xs text-muted-foreground">Transaction ID</label>
+                      <p className="font-medium text-foreground">{detailEnrollment.transaction_id}</p>
+                    </div>
+                  )}
                 </div>
               )}
               {detailEnrollment.referral_source && (
@@ -382,28 +371,38 @@ export default function EnrollmentsPage() {
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground">Status</label>
-                  <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border ${statusColors[detailEnrollment.status]}`}>
-                    {statusLabels[detailEnrollment.status]}
-                  </span>
+                  <select
+                    value={detailEnrollment.status}
+                    disabled={updatingId === detailEnrollment.id}
+                    onChange={(e) => {
+                      updateStatus(detailEnrollment.id, e.target.value);
+                      setDetailEnrollment(null);
+                    }}
+                    className={`block px-2.5 py-1 rounded-full text-xs font-medium border bg-transparent disabled:opacity-50 cursor-pointer ${statusColors[detailEnrollment.status] || ""}`}
+                  >
+                    <option value="pending">{statusLabels.pending}</option>
+                    <option value="approved">{statusLabels.approved}</option>
+                    <option value="rejected">{statusLabels.rejected}</option>
+                  </select>
                 </div>
               </div>
             </div>
-            {detailEnrollment.status === "pending" && (
-              <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
-                <button
-                  onClick={() => { updateStatus(detailEnrollment.id, "rejected"); setDetailEnrollment(null); }}
-                  className="px-4 py-2.5 rounded-xl border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
-                >
-                  Reject
-                </button>
-                <button
-                  onClick={() => { updateStatus(detailEnrollment.id, "approved"); setDetailEnrollment(null); }}
-                  className="px-4 py-2.5 rounded-xl bg-success text-white text-sm font-semibold hover:bg-success/90 transition-colors"
-                >
-                  Approve
-                </button>
-              </div>
-            )}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
+              <button
+                onClick={() => { updateStatus(detailEnrollment.id, "rejected"); setDetailEnrollment(null); }}
+                disabled={detailEnrollment.status === "rejected"}
+                className="px-4 py-2.5 rounded-xl border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                Reject
+              </button>
+              <button
+                onClick={() => { updateStatus(detailEnrollment.id, "approved"); setDetailEnrollment(null); }}
+                disabled={detailEnrollment.status === "approved"}
+                className="px-4 py-2.5 rounded-xl bg-success text-white text-sm font-semibold hover:bg-success/90 transition-colors disabled:opacity-40 disabled:hover:bg-success"
+              >
+                Approve
+              </button>
+            </div>
           </div>
         </div>
       )}

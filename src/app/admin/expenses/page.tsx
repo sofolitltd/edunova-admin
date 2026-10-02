@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getToken, isAuthenticated } from "@/lib/auth";
 import { financeApi, type Expense } from "@/lib/api";
-import { Plus, Edit, Trash2, X, Save, Search, Wallet, Loader2 } from "lucide-react";
+import { Plus, Edit, Trash2, X, Search, Wallet, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES = [

@@ -325,7 +325,10 @@ export default function StudentDetailsPage() {
               <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-muted-foreground" /> Address
               </h3>
-              <p className="text-sm font-medium text-foreground">{user.address || "-"}</p>
+              <div className="grid grid-cols-2 gap-4">
+                <InfoField label="Present Address" value={user.present_address} />
+                <InfoField label="Permanent Address" value={user.permanent_address} />
+              </div>
             </div>
 
             <div className="pt-4 border-t border-border">

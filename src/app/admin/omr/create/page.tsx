@@ -1,14 +1,11 @@
 "use client";
 
-import { Fragment, useEffect, useState, useCallback } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import { getToken } from "@/lib/auth";
-import { omrApi, batchApi, type OMRExam, type OMRTemplate, type Batch } from "@/lib/api";
+import { omrApi, type OMRDesign, type OMRTemplate } from "@/lib/api";
 import { OmrSheet } from "../_lib/OmrSheet";
-import { ScanLine, Plus, Printer, Users, UserPlus, Loader2, CheckCircle2, XCircle, Upload, Copy } from "lucide-react";
+import { ScanLine, Plus, Printer, Loader2, CheckCircle2, XCircle, Ticket, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-
-const OPTION_LABELS = ["A", "B", "C", "D"];
 
 /** The sheet is shown at its true A4 size and scrolled when it doesn't fit.
  * It is deliberately not scaled down: the grid lines are a fraction of a
@@ -23,7 +20,7 @@ function LivePreview({ title, classLevel, subject, template }: { title: string; 
       </div>
     );
   }
-  const previewExam = { id: 0, title, class_level: classLevel, subject, question_count: template.question_bubbles.length, columns: template.columns, exam_code: "", student_count: 0, sheet_count: 0, created_at: "", updated_at: "" };
+  const previewExam = { id: 0, title, class_level: classLevel, subject, question_count: template.question_bubbles.length, columns: template.columns, exam_code: "", omr_design_id: null, answer_key_set: false, student_count: 0, sheet_count: 0, created_at: "", updated_at: "" };
   return (
     <div className="w-full overflow-auto">
       <div style={{ width: `${template.page_width_mm}mm`, boxShadow: "0 1px 8px rgba(0,0,0,0.12)" }}>
@@ -36,56 +33,35 @@ function LivePreview({ title, classLevel, subject, template }: { title: string; 
 export default function CreateOmrPage() {
   const token = getToken() || "";
 
-  const [exams, setExams] = useState<OMRExam[]>([]);
+  const [designs, setDesigns] = useState<OMRDesign[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const [title, setTitle] = useState("");
   const [classLevel, setClassLevel] = useState("");
   const [subject, setSubject] = useState("");
   const [questionCount, setQuestionCount] = useState(50);
   const [columns, setColumns] = useState(0); // 0 = auto
-  const [answers, setAnswers] = useState<number[]>(Array(50).fill(0));
-  const [rollInput, setRollInput] = useState("");
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [createBatchId, setCreateBatchId] = useState<number | "">("");
   const [saving, setSaving] = useState(false);
   const [scanCheck, setScanCheck] = useState<{ scannable: boolean; reason: string; columns: number } | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<OMRTemplate | null>(null);
 
-  // Inline "import roster from batch" control for an already-created exam,
-  // toggled per row rather than a modal — matches this page's existing
-  // "toggle a panel open" convention (see `showForm`).
-  const [importingExamId, setImportingExamId] = useState<number | null>(null);
-  const [importBatchId, setImportBatchId] = useState<number | "">("");
-  const [importBusy, setImportBusy] = useState(false);
-
-  const fetchExams = useCallback(async () => {
+  const fetchDesigns = useCallback(async () => {
     setLoading(true);
     try {
-      setExams(await omrApi.listExams(token));
+      setDesigns(await omrApi.listDesigns(token));
     } catch {
-      toast.error("Failed to load OMR exams");
+      toast.error("Failed to load OMR list");
     } finally {
       setLoading(false);
     }
   }, [token]);
 
   useEffect(() => {
-    fetchExams();
-  }, [fetchExams]);
-
-  useEffect(() => {
-    batchApi.getBatches(token).then(setBatches).catch(() => setBatches([]));
-  }, [token]);
-
-  useEffect(() => {
-    setAnswers((prev) => {
-      const next = Array(questionCount).fill(0);
-      for (let i = 0; i < Math.min(prev.length, questionCount); i++) next[i] = prev[i];
-      return next;
-    });
-  }, [questionCount]);
+    fetchDesigns();
+  }, [fetchDesigns]);
 
   useEffect(() => {
     if (!showForm) return;
@@ -110,100 +86,79 @@ export default function CreateOmrPage() {
     setSubject("");
     setQuestionCount(50);
     setColumns(0);
-    setAnswers(Array(50).fill(0));
-    setRollInput("");
-    setCreateBatchId("");
+    setEditingId(null);
   };
 
-  const handleCreate = async () => {
+  const openCreateForm = () => {
+    if (showForm && editingId === null) {
+      setShowForm(false);
+      return;
+    }
+    resetForm();
+    setShowForm(true);
+  };
+
+  const openEditForm = (d: OMRDesign) => {
+    setEditingId(d.id);
+    setTitle(d.title);
+    setClassLevel(d.class_level);
+    setSubject(d.subject);
+    setQuestionCount(d.question_count);
+    setColumns(d.columns);
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
     if (!title.trim()) {
       toast.error("Title is required");
       return;
     }
-    if (answers.some((a) => a === 0)) {
-      toast.error("Set the correct answer for every question");
-      return;
-    }
     setSaving(true);
     try {
-      const exam = await omrApi.createExam(token, {
+      const payload = {
         title: title.trim(),
         class_level: classLevel,
         subject,
         columns: columns || undefined,
-        questions: answers.map((correct_option, i) => ({ question_number: i + 1, correct_option })),
-      });
-
-      const rolls = rollInput
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          const [roll, ...nameParts] = line.split(",");
-          return { roll_number: roll.trim(), name: nameParts.join(",").trim() };
-        });
-      if (rolls.length > 0) {
-        await omrApi.addStudents(
-          token,
-          exam.id,
-          rolls.map((r) => ({ roll_number: r.roll_number, name: r.name }))
-        );
+        question_count: questionCount,
+      };
+      if (editingId !== null) {
+        await omrApi.updateDesign(token, editingId, payload);
+        toast.success("OMR updated");
+      } else {
+        await omrApi.createDesign(token, payload);
+        toast.success("OMR created");
       }
-
-      if (createBatchId) {
-        const result = await omrApi.importRoster(token, exam.id, Number(createBatchId));
-        toast.success(
-          `Imported ${result.imported} students from batch` +
-            (result.without_login > 0 ? ` (${result.without_login} have no app login yet — their results won't sync automatically)` : "")
-        );
-      }
-
-      toast.success(`OMR exam created — code ${exam.exam_code}`);
       resetForm();
       setShowForm(false);
-      fetchExams();
+      fetchDesigns();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create exam");
+      toast.error(err instanceof Error ? err.message : "Failed to save OMR");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleCopyCode = (code: string) => {
-    navigator.clipboard?.writeText(code).then(
-      () => toast.success("Exam code copied"),
-      () => toast.error("Could not copy code")
-    );
-  };
-
-  const handleImportRoster = async (examId: number) => {
-    if (!importBatchId) {
-      toast.error("Pick a batch first");
-      return;
-    }
-    setImportBusy(true);
+  const handleDelete = async (d: OMRDesign) => {
+    if (!window.confirm(`Delete "${d.title}"? Tokens already created from it keep their own data.`)) return;
+    setDeletingId(d.id);
     try {
-      const result = await omrApi.importRoster(token, examId, Number(importBatchId));
-      toast.success(
-        `Imported ${result.imported} students` +
-          (result.without_login > 0 ? ` (${result.without_login} have no app login yet)` : "")
-      );
-      setImportingExamId(null);
-      setImportBatchId("");
-      fetchExams();
+      await omrApi.deleteDesign(token, d.id);
+      toast.success("OMR deleted");
+      fetchDesigns();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to import roster");
+      toast.error(err instanceof Error ? err.message : "Failed to delete OMR");
     } finally {
-      setImportBusy(false);
+      setDeletingId(null);
     }
   };
 
   const inputClass =
     "w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30";
 
-  // Mirrors LivePreview's own inline exam stand-in — no exam is saved yet at
-  // this point in the flow, so there's no real OMRExam (or examId to hand
-  // off to the dedicated print page) to render the sheet with.
+  // Mirrors LivePreview's own inline exam stand-in — no design is saved yet
+  // at this point in the flow, so there's nothing real to render the sheet
+  // with beyond the current form values.
   const previewExamForPrint = previewTemplate
     ? {
         id: 0,
@@ -213,6 +168,8 @@ export default function CreateOmrPage() {
         question_count: previewTemplate.question_bubbles.length,
         columns: previewTemplate.columns,
         exam_code: "",
+        omr_design_id: null,
+        answer_key_set: false,
         student_count: 0,
         sheet_count: 0,
         created_at: "",
@@ -283,17 +240,17 @@ export default function CreateOmrPage() {
       <div className="no-print">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Create OMR</h1>
+          <h1 className="text-2xl font-bold text-foreground">OMR Create</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Build an answer key, add a roster, and print or download bubble sheets for a paper exam.
+            Design a bubble-sheet layout — title, class, subject and question count. Tokens are created from this on the OMR Token page.
           </p>
         </div>
         <button
-          onClick={() => setShowForm((s) => !s)}
+          onClick={openCreateForm}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-primary to-primary-dark text-white text-sm font-semibold shadow-primary hover:shadow-lg transition-all"
         >
           <Plus className="w-4 h-4" />
-          New OMR Exam
+          Create OMR
         </button>
       </div>
 
@@ -308,7 +265,7 @@ export default function CreateOmrPage() {
           {/* Right: settings panel */}
           <div className="bg-card border border-border rounded-2xl p-6 space-y-5">
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Exam Title *</label>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Title *</label>
               <input className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Class 5 English 1st Term" />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -369,85 +326,26 @@ export default function CreateOmrPage() {
                 Print
               </button>
             )}
-          </div>
-        </div>
-      )}
 
-      {showForm && (
-        <div className="bg-card border border-border rounded-2xl p-6 mb-6 space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">Answer Key</label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto p-3 rounded-xl bg-secondary/40">
-              {answers.map((selected, i) => (
-                <div key={i} className="flex items-center gap-1.5 bg-card rounded-lg px-2 py-1.5 border border-border">
-                  <span className="text-xs text-muted-foreground w-6">{i + 1}.</span>
-                  {OPTION_LABELS.map((label, optIdx) => (
-                    <button
-                      key={label}
-                      onClick={() =>
-                        setAnswers((prev) => {
-                          const next = [...prev];
-                          next[i] = optIdx + 1;
-                          return next;
-                        })
-                      }
-                      className={`w-6 h-6 rounded-full text-xs font-semibold transition-all ${
-                        selected === optIdx + 1 ? "bg-primary text-white" : "bg-secondary text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              ))}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  resetForm();
+                  setShowForm(false);
+                }}
+                className="px-4 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-secondary transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-primary-dark text-white text-sm font-semibold shadow-primary disabled:opacity-60"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {editingId !== null ? "Update OMR" : "Save OMR"}
+              </button>
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Import roster from a batch (optional)</label>
-            <select
-              className={inputClass}
-              value={createBatchId}
-              onChange={(e) => setCreateBatchId(e.target.value ? Number(e.target.value) : "")}
-            >
-              <option value="">— No batch —</option>
-              {batches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground mt-1">
-              Pulls roll numbers/names from this batch&apos;s approved enrollments and links each row to the enrolled student, so scored sheets can post to their results automatically.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">
-              Or paste a roster manually — one student per line: <span className="text-muted-foreground">roll, name</span>
-            </label>
-            <textarea
-              className={`${inputClass} font-mono`}
-              rows={5}
-              value={rollInput}
-              onChange={(e) => setRollInput(e.target.value)}
-              placeholder={"1, Rahim Uddin\n2, Karim Ahmed"}
-            />
-            <p className="text-xs text-muted-foreground mt-1">Manually-added students won&apos;t link to an app account, so their results stay visible here only.</p>
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setShowForm(false)} className="px-4 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-secondary transition-all">
-              Cancel
-            </button>
-            <button
-              onClick={handleCreate}
-              disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-primary-dark text-white text-sm font-semibold shadow-primary disabled:opacity-60"
-            >
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Create Exam
-            </button>
           </div>
         </div>
       )}
@@ -456,105 +354,64 @@ export default function CreateOmrPage() {
         <div className="flex justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
-      ) : exams.length === 0 ? (
+      ) : designs.length === 0 ? (
         <div className="bg-card border border-border rounded-2xl p-12 flex flex-col items-center justify-center text-center">
           <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
             <ScanLine className="w-7 h-7 text-primary" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground">No OMR exams yet</h2>
-          <p className="text-sm text-muted-foreground mt-1 max-w-sm">Create one to generate a printable bubble sheet.</p>
+          <h2 className="text-lg font-semibold text-foreground">No OMR yet</h2>
+          <p className="text-sm text-muted-foreground mt-1 max-w-sm">Create one to generate tokens from on the OMR Token page.</p>
         </div>
       ) : (
         <div className="bg-card border border-border rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-secondary/40 text-muted-foreground text-xs uppercase tracking-wider">
               <tr>
                 <th className="text-left px-4 py-3">Title</th>
-                <th className="text-left px-4 py-3">Code</th>
+                <th className="text-left px-4 py-3">Class</th>
+                <th className="text-left px-4 py-3">Subject</th>
                 <th className="text-left px-4 py-3">Questions</th>
-                <th className="text-left px-4 py-3">Students</th>
-                <th className="text-left px-4 py-3">Sheets</th>
+                <th className="text-left px-4 py-3">Columns</th>
+                <th className="text-left px-4 py-3">Tokens</th>
                 <th className="text-right px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {exams.map((e) => (
-                <Fragment key={e.id}>
-                  <tr className="hover:bg-secondary/30">
-                    <td className="px-4 py-3 text-foreground font-medium">{e.title}</td>
-                    <td className="px-4 py-3">
+              {designs.map((d) => (
+                <tr key={d.id} className="hover:bg-secondary/30">
+                  <td className="px-4 py-3 text-foreground font-medium">{d.title}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{d.class_level || "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{d.subject || "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{d.question_count}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{d.columns}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Ticket className="w-3.5 h-3.5" /> {d.token_count}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
                       <button
-                        onClick={() => handleCopyCode(e.exam_code)}
-                        className="inline-flex items-center gap-1.5 font-mono text-muted-foreground hover:text-foreground"
-                        title="Copy OMR code"
+                        onClick={() => openEditForm(d)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/70"
                       >
-                        {e.exam_code} <Copy className="w-3 h-3" />
+                        <Pencil className="w-3.5 h-3.5" /> Edit
                       </button>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{e.question_count}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      <span className="inline-flex items-center gap-1"><Users className="w-3.5 h-3.5" />{e.student_count}</span>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{e.sheet_count}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            setImportingExamId(importingExamId === e.id ? null : e.id);
-                            setImportBatchId("");
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/70"
-                        >
-                          <UserPlus className="w-3.5 h-3.5" /> Roster
-                        </button>
-                        <Link
-                          href={`/admin/omr/create/print/${e.id}`}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/70"
-                        >
-                          <Printer className="w-3.5 h-3.5" /> Print
-                        </Link>
-                        <Link
-                          href="/admin/omr/evaluate"
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20"
-                        >
-                          <Upload className="w-3.5 h-3.5" /> Evaluate
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                  {importingExamId === e.id && (
-                    <tr className="bg-secondary/20">
-                      <td colSpan={6} className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <select
-                            className={`${inputClass} max-w-xs`}
-                            value={importBatchId}
-                            onChange={(ev) => setImportBatchId(ev.target.value ? Number(ev.target.value) : "")}
-                          >
-                            <option value="">Pick a batch…</option>
-                            {batches.map((b) => (
-                              <option key={b.id} value={b.id}>
-                                {b.name}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={() => handleImportRoster(e.id)}
-                            disabled={importBusy}
-                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-xs font-semibold disabled:opacity-60"
-                          >
-                            {importBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                            Import roster
-                          </button>
-                          <span className="text-xs text-muted-foreground">Adds/updates roll numbers from this batch&apos;s approved enrollments.</span>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
+                      <button
+                        onClick={() => handleDelete(d)}
+                        disabled={deletingId === d.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-60"
+                      >
+                        {deletingId === d.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
       </div>
