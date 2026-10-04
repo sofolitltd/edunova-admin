@@ -20,8 +20,10 @@ import {
   User,
   Phone,
   Eye,
+  Printer,
 } from "lucide-react";
 import { toast } from "sonner";
+import EnrollmentInvoiceDialog from "@/components/EnrollmentInvoiceDialog";
 
 const statusColors: Record<string, string> = {
   pending: "bg-warning/10 text-warning border-warning/30",
@@ -47,6 +49,7 @@ export default function EnrollmentsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [detailEnrollment, setDetailEnrollment] = useState<Enrollment | null>(null);
+  const [invoiceEnrollment, setInvoiceEnrollment] = useState<Enrollment | null>(null);
 
   const fetchEnrollments = useCallback(async () => {
     const token = getToken();
@@ -241,6 +244,15 @@ export default function EnrollmentsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
+                        {en.batch_id && (
+                          <button
+                            onClick={() => setInvoiceEnrollment(en)}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                            title="Admission invoice"
+                          >
+                            <Printer className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => setDetailEnrollment(en)}
                           className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
@@ -291,6 +303,8 @@ export default function EnrollmentsPage() {
       )}
 
       {/* Detail Modal */}
+      {invoiceEnrollment && <EnrollmentInvoiceDialog enrollment={invoiceEnrollment} onClose={() => setInvoiceEnrollment(null)} />}
+
       {detailEnrollment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg bg-card rounded-2xl border border-border shadow-lg-custom">

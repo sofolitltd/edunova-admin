@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { getToken, isAuthenticated, getLoginPath } from "@/lib/auth";
-import { api, lessonApi, type Lesson, type Course } from "@/lib/api";
+import { api, batchApi, lessonApi, academicManagementApi, type Lesson, type LessonKind, type Course, type Book, type Chapter, type Topic } from "@/lib/api";
 import { useBatchFilter } from "@/hooks/useBatchFilter";
 import { BatchFilterSelect } from "@/components/BatchFilterSelect";
 import { BookOpen, Plus, Edit, Trash2, X, Save, Calendar, Loader2, GraduationCap, FileText } from "lucide-react";
@@ -28,9 +28,22 @@ export default function LessonsPage() {
     description: "",
     subject: "",
     chapter: "",
+    chapter_id: 0,
+    topic: "",
+    topic_id: 0,
     lesson_date: new Date().toISOString().split("T")[0],
     teacher_notes: "",
+    kind: "lesson" as LessonKind,
+    link_url: "",
   });
+  const [batchSubjects, setBatchSubjects] = useState<{ name: string; subjectId: number }[]>([]);
+  const batchSubjectNames = batchSubjects.map((s) => s.name);
+  // Curriculum picker: book (edition) -> chapter -> topic. "Other" keeps free text.
+  const [books, setBooks] = useState<Book[]>([]);
+  const [bookId, setBookId] = useState(0);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [customChapter, setCustomChapter] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [showDelete, setShowDelete] = useState<Lesson | null>(null);
@@ -73,6 +86,63 @@ export default function LessonsPage() {
     loadLessons();
   }, [loadCourses, loadLessons]);
 
+  useEffect(() => {
+    const token = getToken();
+    if (!showForm || !form.batch_id || !token) return;
+    let cancelled = false;
+    batchApi
+      .getBatchSubjects(token, form.batch_id)
+      .then((subjects) => {
+        if (!cancelled) {
+          const seen = new Map(subjects.map((s) => [s.subject_name, s.subject_id]));
+          setBatchSubjects([...seen].map(([name, subjectId]) => ({ name, subjectId })));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setBatchSubjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showForm, form.batch_id]);
+
+  const subjectId = batchSubjects.find((s) => s.name === form.subject)?.subjectId ?? 0;
+
+  useEffect(() => {
+    const token = getToken();
+    if (!showForm || !subjectId || !token) { setBooks([]); return; }
+    let cancelled = false;
+    academicManagementApi
+      .getBooks(token, subjectId, undefined, true)
+      .then((list) => {
+        if (cancelled) return;
+        setBooks(list);
+        setBookId((cur) => (list.some((b) => b.id === cur) ? cur : list.length === 1 ? list[0].id : 0));
+      })
+      .catch(() => { if (!cancelled) setBooks([]); });
+    return () => { cancelled = true; };
+  }, [showForm, subjectId]);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!bookId || !token) { setChapters([]); return; }
+    let cancelled = false;
+    academicManagementApi.getChapters(token, bookId)
+      .then((list) => { if (!cancelled) setChapters(list); })
+      .catch(() => { if (!cancelled) setChapters([]); });
+    return () => { cancelled = true; };
+  }, [bookId]);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!form.chapter_id || !token) { setTopics([]); return; }
+    let cancelled = false;
+    academicManagementApi.getTopics(token, form.chapter_id)
+      .then((list) => { if (!cancelled) setTopics(list); })
+      .catch(() => { if (!cancelled) setTopics([]); });
+    return () => { cancelled = true; };
+  }, [form.chapter_id]);
+
   const filteredLessons = filterCourse
     ? lessons.filter((l) => l.course_id === filterCourse)
     : lessons;
@@ -85,9 +155,16 @@ export default function LessonsPage() {
       description: "",
       subject: "",
       chapter: "",
+      chapter_id: 0,
+      topic: "",
+      topic_id: 0,
       lesson_date: new Date().toISOString().split("T")[0],
       teacher_notes: "",
+      kind: "lesson",
+      link_url: "",
     });
+    setBookId(0);
+    setCustomChapter(false);
     setEditingId(null);
     setShowForm(false);
   };
@@ -106,9 +183,16 @@ export default function LessonsPage() {
       description: lesson.description || "",
       subject: lesson.subject || "",
       chapter: lesson.chapter || "",
+      chapter_id: lesson.chapter_id || 0,
+      topic: lesson.topic || "",
+      topic_id: lesson.topic_id || 0,
       lesson_date: lesson.lesson_date?.split("T")[0] || new Date().toISOString().split("T")[0],
       teacher_notes: lesson.teacher_notes || "",
+      kind: lesson.kind || "lesson",
+      link_url: lesson.link_url || "",
     });
+    setBookId(0);
+    setCustomChapter(!lesson.chapter_id && !!lesson.chapter);
     setShowForm(true);
   };
 
@@ -364,6 +448,18 @@ export default function LessonsPage() {
                 </select>
               </div>
               <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Type</label>
+                <select
+                  value={form.kind}
+                  onChange={(e) => setForm({ ...form, kind: e.target.value as LessonKind })}
+                  className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="lesson">Class note (what was taught)</option>
+                  <option value="video">Video</option>
+                  <option value="homework">Homework</option>
+                </select>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Title *</label>
                 <input
                   type="text"
@@ -383,26 +479,111 @@ export default function LessonsPage() {
                   className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Link (video, Drive, PDF…)</label>
+                <input
+                  type="url"
+                  value={form.link_url}
+                  onChange={(e) => setForm({ ...form, link_url: e.target.value })}
+                  placeholder="https://"
+                  className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Subject</label>
-                  <input
-                    type="text"
-                    value={form.subject}
-                    onChange={(e) => setForm({ ...form, subject: e.target.value })}
-                    placeholder="e.g. Mathematics"
-                    className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
+                  {form.batch_id && batchSubjectNames.length > 0 ? (
+                    <select
+                      value={form.subject}
+                      onChange={(e) => {
+                        setForm({ ...form, subject: e.target.value, chapter: "", chapter_id: 0, topic: "", topic_id: 0 });
+                        setBookId(0);
+                        setCustomChapter(false);
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    >
+                      <option value="">Select a subject</option>
+                      {form.subject && !batchSubjectNames.includes(form.subject) && (
+                        <option value={form.subject}>{form.subject}</option>
+                      )}
+                      {batchSubjectNames.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={form.subject}
+                      onChange={(e) => setForm({ ...form, subject: e.target.value })}
+                      placeholder="e.g. Mathematics"
+                      className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Chapter</label>
-                  <input
-                    type="text"
-                    value={form.chapter}
-                    onChange={(e) => setForm({ ...form, chapter: e.target.value })}
-                    placeholder="e.g. Chapter 3"
-                    className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
+                  {books.length > 0 && !customChapter ? (
+                    <div className="space-y-2">
+                      {books.length > 1 && (
+                        <select value={bookId} onChange={(e) => setBookId(Number(e.target.value))} className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
+                          <option value={0}>Select a book</option>
+                          {books.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name}{b.class_name ? ` · ${b.class_name}` : ""}{b.academic_year ? ` (${b.academic_year})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <select
+                        value={form.chapter_id}
+                        onChange={(e) => {
+                          if (e.target.value === "other") { setCustomChapter(true); setForm({ ...form, chapter_id: 0, topic: "", topic_id: 0 }); return; }
+                          const ch = chapters.find((c) => c.id === Number(e.target.value));
+                          setForm({ ...form, chapter_id: ch?.id ?? 0, chapter: ch ? ch.name_bn || ch.name : "", topic: "", topic_id: 0 });
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      >
+                        <option value={0}>Select a chapter</option>
+                        {form.chapter_id > 0 && !chapters.some((c) => c.id === form.chapter_id) && (
+                          <option value={form.chapter_id}>{form.chapter}</option>
+                        )}
+                        {chapters.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name_bn || c.name}</option>
+                        ))}
+                        <option value="other">Other (type manually)</option>
+                      </select>
+                      {form.chapter_id > 0 && topics.length > 0 && (
+                        <select
+                          value={form.topic_id}
+                          onChange={(e) => {
+                            const t = topics.find((x) => x.id === Number(e.target.value));
+                            setForm({ ...form, topic_id: t?.id ?? 0, topic: t ? t.name_bn || t.name : "" });
+                          }}
+                          className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        >
+                          <option value={0}>Topic (optional)</option>
+                          {topics.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name_bn || t.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={form.chapter}
+                        onChange={(e) => setForm({ ...form, chapter: e.target.value, chapter_id: 0, topic_id: 0 })}
+                        placeholder="e.g. Chapter 3"
+                        className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      {books.length > 0 && (
+                        <button type="button" onClick={() => setCustomChapter(false)} className="text-xs text-primary font-medium hover:underline">
+                          Pick from curriculum
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div>

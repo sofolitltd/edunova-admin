@@ -4,8 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getToken, isAuthenticated } from "@/lib/auth";
 import { paymentApi, api, type Payment, type User } from "@/lib/api";
-import { Plus, Check, X, Trash2, Search, CreditCard, Loader2, Receipt, Clock, CheckCircle2 } from "lucide-react";
+import { Plus, Check, X, Trash2, Search, CreditCard, Loader2, Receipt, Clock, CheckCircle2, Printer } from "lucide-react";
 import { toast } from "sonner";
+import PaymentReceiptDialog from "@/components/PaymentReceiptDialog";
 
 const METHODS = [
   { value: "bkash", label: "bKash", color: "bg-pink-100 text-pink-700 border-pink-200" },
@@ -50,6 +51,7 @@ export default function PaymentsPage() {
   });
 
   const [showDelete, setShowDelete] = useState<Payment | null>(null);
+  const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
@@ -324,6 +326,13 @@ export default function PaymentsPage() {
                           </>
                         )}
                         <button
+                          onClick={() => setReceiptPayment(p)}
+                          className="p-1.5 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                          title="Receipt"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => setShowDelete(p)}
                           className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
                           title="Delete"
@@ -339,6 +348,8 @@ export default function PaymentsPage() {
           </div>
         )}
       </div>
+
+      {receiptPayment && <PaymentReceiptDialog payment={receiptPayment} onClose={() => setReceiptPayment(null)} />}
 
       {/* Create Modal */}
       {showForm && (

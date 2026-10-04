@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { getToken } from "@/lib/auth";
 import { academicManagementApi, type ClassItem, type Subject, type Book, type Chapter, type Topic } from "@/lib/api";
-import { Plus, ChevronRight, Edit, Trash2, X, Save, Upload, Home } from "lucide-react";
+import { Plus, ChevronRight, Edit, Trash2, X, Save, Upload, Home, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 type Level = "classes" | "subjects" | "books" | "chapters" | "topics";
@@ -30,6 +30,7 @@ export default function AcademicManagementPage() {
   const [formNameBn, setFormNameBn] = useState("");
   const [formOrder, setFormOrder] = useState(0);
   const [formPublisher, setFormPublisher] = useState("");
+  const [formYear, setFormYear] = useState(0);
   const [formCode, setFormCode] = useState("");
 
   // Bulk import
@@ -117,7 +118,7 @@ export default function AcademicManagementPage() {
 
   // Form helpers
   const resetForm = () => {
-    setFormName(""); setFormNameBn(""); setFormOrder(0); setFormPublisher(""); setFormCode("");
+    setFormName(""); setFormNameBn(""); setFormOrder(0); setFormPublisher(""); setFormYear(0); setFormCode("");
     setEditingId(null); setShowForm(false);
   };
 
@@ -131,7 +132,10 @@ export default function AcademicManagementPage() {
     setFormName(item.name);
     setFormNameBn(item.name_bn || "");
     if ("order_index" in item) setFormOrder(item.order_index);
-    if ("publisher" in item) setFormPublisher((item as Book).publisher || "");
+    if ("publisher" in item) {
+      setFormPublisher((item as Book).publisher || "");
+      setFormYear((item as Book).academic_year || 0);
+    }
     if ("code" in item) setFormCode((item as ClassItem).code || "");
     setShowForm(true);
   };
@@ -160,7 +164,7 @@ export default function AcademicManagementPage() {
           await academicManagementApi.createSubject(token, { name: formName, name_bn: formNameBn });
         }
       } else if (currentLevel === "books") {
-        const data = { subject_id: subjectId!, class_id: classId!, name: formName, name_bn: formNameBn, publisher: formPublisher };
+        const data = { subject_id: subjectId!, class_id: classId!, name: formName, name_bn: formNameBn, publisher: formPublisher, academic_year: formYear };
         if (editingId) {
           await academicManagementApi.updateBook(token, editingId, data);
         } else {
@@ -186,6 +190,21 @@ export default function AcademicManagementPage() {
       fetchItems();
     } catch {
       toast.error("Failed to save");
+    }
+  };
+
+  const handleCloneBook = async (book: Book) => {
+    const input = prompt(
+      `New edition of "${book.name}". Academic year (e.g. ${(book.academic_year || new Date().getFullYear()) + 1})?\n\nChapters and topics are copied and this edition is archived. Past lessons keep pointing at it.`,
+    );
+    const year = Number(input);
+    if (!input || !Number.isInteger(year) || year < 2000) return;
+    try {
+      await academicManagementApi.cloneBook(token, book.id, { academic_year: year });
+      toast.success("New edition created");
+      fetchItems();
+    } catch {
+      toast.error("Failed to create new edition");
     }
   };
 
@@ -341,6 +360,12 @@ export default function AcademicManagementPage() {
                     <div>
                       <div className="text-sm font-medium text-foreground flex items-center gap-2">
                         {item.name}
+                        {currentLevel === "books" && (item as Book).academic_year > 0 && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">{(item as Book).academic_year}</span>
+                        )}
+                        {currentLevel === "books" && (item as Book).is_active === false && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">Archived</span>
+                        )}
                         {currentLevel === "classes" && (item as ClassItem).code && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">{(item as ClassItem).code}</span>
                         )}
@@ -353,6 +378,15 @@ export default function AcademicManagementPage() {
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     {canDrillDown && (
                       <ChevronRight className="w-4 h-4 text-muted-foreground mr-2" />
+                    )}
+                    {currentLevel === "books" && (item as Book).is_active !== false && (
+                      <button
+                        onClick={() => handleCloneBook(item as Book)}
+                        title="New edition"
+                        className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
                     )}
                     <button
                       onClick={() => openEdit(item)}
@@ -413,6 +447,18 @@ export default function AcademicManagementPage() {
                     value={formPublisher}
                     onChange={(e) => setFormPublisher(e.target.value)}
                     placeholder="e.g. NCTB"
+                    className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+              )}
+              {currentLevel === "books" && (
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Academic Year</label>
+                  <input
+                    type="number"
+                    value={formYear || ""}
+                    onChange={(e) => setFormYear(Number(e.target.value))}
+                    placeholder="e.g. 2026"
                     className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                   />
                 </div>
@@ -503,6 +549,18 @@ export default function AcademicManagementPage() {
                     value={formPublisher}
                     onChange={(e) => setFormPublisher(e.target.value)}
                     placeholder="e.g. NCTB"
+                    className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+              )}
+              {currentLevel === "books" && (
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Academic Year</label>
+                  <input
+                    type="number"
+                    value={formYear || ""}
+                    onChange={(e) => setFormYear(Number(e.target.value))}
+                    placeholder="e.g. 2026"
                     className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                   />
                 </div>

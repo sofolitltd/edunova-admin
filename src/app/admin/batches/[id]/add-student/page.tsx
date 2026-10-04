@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getToken, isAuthenticated } from "@/lib/auth";
-import { batchApi, userSearchApi, academicManagementApi, type Batch, type SearchUser, type ClassItem, type Enrollment } from "@/lib/api";
-import { ArrowLeft, Search, Loader2, CheckCircle2, Printer, AlertTriangle, Users } from "lucide-react";
+import { batchApi, invoiceApi, userSearchApi, academicManagementApi, type Batch, type Invoice, type SearchUser, type ClassItem, type Enrollment } from "@/lib/api";
+import { ArrowLeft, Search, Loader2, CheckCircle2, AlertTriangle, Users } from "lucide-react";
 import { toast } from "sonner";
+import InvoiceView from "@/components/invoice/InvoiceView";
+import { PrintControls, type InvoiceCopies } from "@/components/invoice/parts";
 
 type DiscountType = "percentage" | "fixed";
 type FeeLine = { amount: number; discount_type: DiscountType; discount_value: number };
@@ -54,7 +56,8 @@ export default function AddStudentPage() {
   const [studentIdChecking, setStudentIdChecking] = useState(false);
   const [studentIdAvailable, setStudentIdAvailable] = useState<boolean | null>(null);
 
-  const [success, setSuccess] = useState<{ enrollment: Enrollment; breakdown: typeof newStudent } | null>(null);
+  const [copies, setCopies] = useState<InvoiceCopies>("single");
+  const [success, setSuccess] = useState<{ enrollment: Enrollment; invoice: Invoice | null } | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated()) { router.push("/admin/login"); return; }
@@ -183,6 +186,11 @@ export default function AddStudentPage() {
     const token = getToken();
     if (!token) return;
     setSaving(true);
+    const feeBreakdown = [
+      { label: "Admission Fee", fee: newStudent.admission },
+      { label: "Note Fee", fee: newStudent.note },
+      { label: "Monthly Fee", fee: newStudent.monthly },
+    ].map(({ label, fee }) => ({ label, amount: fee.amount, discount: feeDiscount(fee), discount_label: fee.discount_type === "percentage" ? `${fee.discount_value}% off` : "flat discount" }));
     try {
       const enrollment = await batchApi.directEnroll(token, {
         user_id: selectedUser?.id,
@@ -204,10 +212,12 @@ export default function AddStudentPage() {
         address: newStudent.address,
         payment_method: newStudent.payment_method,
         reference,
+        fee_breakdown: feeBreakdown,
       });
       toast.success("Student added to batch");
       setStudentCount((prev) => (prev !== null ? prev + 1 : prev));
-      setSuccess({ enrollment, breakdown: newStudent });
+      const invoice = await invoiceApi.forEnrollment(token, enrollment.id).catch(() => null);
+      setSuccess({ enrollment, invoice });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add student");
     } finally {
@@ -232,17 +242,10 @@ export default function AddStudentPage() {
   }
 
   if (success) {
-    const { enrollment, breakdown } = success;
-    const feeRows = [
-      { label: "Admission Fee", fee: breakdown.admission },
-      { label: "Note Fee", fee: breakdown.note },
-      { label: "Monthly Fee", fee: breakdown.monthly },
-    ].filter((r) => r.fee.amount > 0);
-    const billSubtotal = feeRows.reduce((sum, r) => sum + r.fee.amount, 0);
-    const billDiscount = feeRows.reduce((sum, r) => sum + feeDiscount(r.fee), 0);
+    const { enrollment, invoice } = success;
 
     return (
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="max-w-3xl mx-auto space-y-6">
         <div className="print:hidden bg-card rounded-2xl border border-border p-8 text-center space-y-4">
           <CheckCircle2 className="w-12 h-12 mx-auto text-success" />
           <div>
@@ -274,93 +277,24 @@ export default function AddStudentPage() {
             >
               Add Another
             </button>
-            <button
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary-dark transition-all"
-            >
-              <Printer className="w-4 h-4" />
-              Generate Billing
-            </button>
           </div>
         </div>
 
-        {/* Printable invoice */}
-        <div className="hidden print:block bg-card rounded-2xl border border-border p-8 space-y-6">
-          <div className="text-center space-y-1">
-            <h2 className="text-lg font-bold text-foreground">EduNova — Payment Receipt</h2>
-            <p className="text-xs text-muted-foreground">{new Date(enrollment.created_at).toLocaleString("en-BD")}</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="text-xs text-muted-foreground">Student</p>
-              <p className="font-medium text-foreground">{enrollment.full_name}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Phone</p>
-              <p className="font-medium text-foreground">{enrollment.mobile}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Batch</p>
-              <p className="font-medium text-foreground">{batch.name}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Receipt No.</p>
-              <p className="font-medium text-foreground">EN-{enrollment.id}</p>
-            </div>
-          </div>
-
-          <table className="w-full text-sm border-t border-border pt-2">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="py-2">Item</th>
-                <th className="py-2 text-right">Amount</th>
-                <th className="py-2 text-right">Discount</th>
-                <th className="py-2 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {feeRows.map((r) => (
-                <tr key={r.label} className="border-t border-border">
-                  <td className="py-2 text-foreground">{r.label}</td>
-                  <td className="py-2 text-right text-foreground">৳{r.fee.amount}</td>
-                  <td className="py-2 text-right text-foreground">৳{feeDiscount(r.fee)}</td>
-                  <td className="py-2 text-right font-medium text-foreground">৳{feeTotal(r.fee)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="space-y-1 text-sm border-t border-border pt-2">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>Subtotal</span>
-              <span>৳{billSubtotal.toLocaleString()}</span>
-            </div>
-            {billDiscount > 0 && (
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span>Discount</span>
-                <span>− ৳{billDiscount.toLocaleString()}</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between font-semibold text-foreground pt-1 border-t border-border">
-              <span>Total Paid</span>
-              <span>৳{enrollment.amount.toLocaleString()}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 text-sm border-t border-border pt-2">
-            <div>
-              <p className="text-xs text-muted-foreground">Payment Type</p>
-              <p className="font-medium text-foreground capitalize">{enrollment.payment_method}</p>
-            </div>
-            {enrollment.sent_from && (
-              <div>
-                <p className="text-xs text-muted-foreground">Reference</p>
-                <p className="font-medium text-foreground">{enrollment.sent_from}</p>
-              </div>
-            )}
-          </div>
-        </div>
+        {invoice ? (
+          <>
+            <PrintControls
+              copies={copies}
+              onCopiesChange={setCopies}
+              onDownload={() => {
+                const token = getToken();
+                if (token) invoiceApi.openPdf(token, invoice.id, copies).catch((err) => toast.error(err instanceof Error ? err.message : "Failed to generate PDF"));
+              }}
+            />
+            <InvoiceView invoice={invoice} copies={copies} />
+          </>
+        ) : (
+          <p className="print:hidden text-center text-sm text-muted-foreground">The invoice could not be loaded. Open it from the Enrollments page.</p>
+        )}
       </div>
     );
   }

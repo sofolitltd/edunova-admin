@@ -1,24 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { getToken, isAuthenticated, getLoginPath } from "@/lib/auth";
 import { resultApi, userSearchApi, type Result, type SearchUser } from "@/lib/api";
+import { SUBJECTS } from "@/lib/resultSubjects";
 import { useBatchFilter } from "@/hooks/useBatchFilter";
 import { BatchFilterSelect } from "@/components/BatchFilterSelect";
-import { Plus, Edit, Trash2, X, Loader2, ClipboardList, Search } from "lucide-react";
+import { Plus, Edit, Trash2, X, Loader2, ClipboardList, Search, ListChecks } from "lucide-react";
 import { toast } from "sonner";
-
-const SUBJECTS = [
-  { value: "Math", label: "গণিত" },
-  { value: "Science", label: "বিজ্ঞান" },
-  { value: "English", label: "ইংরেজি" },
-  { value: "Bengali", label: "বাংলা" },
-  { value: "Social Science", label: "সমাজবিজ্ঞান" },
-  { value: "Physics", label: "পদার্থবিজ্ঞান" },
-  { value: "Chemistry", label: "রসায়ন" },
-  { value: "Biology", label: "জীববিজ্ঞান" },
-];
 
 const emptyForm = {
   user_id: 0,
@@ -158,9 +149,14 @@ export default function ResultsPage() {
           <h1 className="text-2xl font-bold text-foreground">Results</h1>
           <p className="text-sm text-muted-foreground mt-1">Offline exam scores — the data source for each guardian&apos;s progress view</p>
         </div>
-        <button onClick={() => { resetForm(); setShowForm(true); }} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary-dark transition-all">
-          <Plus className="w-4 h-4" /> Add Result
-        </button>
+        <div className="flex items-center gap-2">
+          <Link href={`${isTeacherPortal ? "/teacher" : "/admin"}/results/bulk`} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-secondary text-foreground text-sm font-medium hover:bg-secondary/80 transition-all">
+            <ListChecks className="w-4 h-4" /> Bulk Entry
+          </Link>
+          <button onClick={() => { resetForm(); setShowForm(true); }} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary-dark transition-all">
+            <Plus className="w-4 h-4" /> Add Result
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -226,8 +222,8 @@ export default function ResultsPage() {
                     <td className="px-4 py-3">{subjectLabel(r.subject)}</td>
                     <td className="px-4 py-3">{r.exam_name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{r.exam_date}</td>
-                    <td className="px-4 py-3 text-right">{r.marks_obtained}/{r.marks_total}</td>
-                    <td className={`px-4 py-3 text-right font-semibold ${percentColor(r.percentage)}`}>{r.percentage.toFixed(1)}%</td>
+                    <td className="px-4 py-3 text-right">{r.absent ? "—" : `${r.marks_obtained}/${r.marks_total}`}</td>
+                    <td className={`px-4 py-3 text-right font-semibold ${r.absent ? "text-muted-foreground" : percentColor(r.percentage)}`}>{r.absent ? "Absent" : `${r.percentage.toFixed(1)}%`}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
                         <button onClick={() => openEdit(r)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"><Edit className="w-3.5 h-3.5" /></button>

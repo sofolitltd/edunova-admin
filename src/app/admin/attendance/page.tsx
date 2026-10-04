@@ -387,17 +387,21 @@ export default function AttendancePage() {
             ) : (
               <div className="divide-y divide-border">
                 {holidays.map((h) => (
-                  <div key={h.id} className="px-6 py-3 flex items-center justify-between hover:bg-secondary/50 transition-all">
+                  <div key={`${h.source}-${h.id}-${h.date}`} className="px-6 py-3 flex items-center justify-between hover:bg-secondary/50 transition-all">
                     <div>
                       <p className="text-sm font-medium text-foreground">{new Date(h.date).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
                       {h.reason && <p className="text-xs text-muted-foreground mt-0.5">{h.reason}</p>}
                     </div>
-                    <button
-                      onClick={() => handleDeleteHoliday(h.id)}
-                      className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {h.source === "calendar" ? (
+                      <span className="text-xs text-muted-foreground bg-secondary px-2.5 py-1 rounded-lg" title="Added from the Calendar page — edit it there">Calendar</span>
+                    ) : (
+                      <button
+                        onClick={() => handleDeleteHoliday(h.id)}
+                        className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

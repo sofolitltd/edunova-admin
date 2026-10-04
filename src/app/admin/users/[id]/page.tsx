@@ -40,11 +40,14 @@ import {
   Bell,
   Info,
   Download,
+  Printer,
   AlertCircle,
   X,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import EnrollmentInvoiceDialog from "@/components/EnrollmentInvoiceDialog";
+import PaymentReceiptDialog from "@/components/PaymentReceiptDialog";
 
 type Tab = "overview" | "enrollments" | "payments" | "attendance" | "results" | "doubts" | "devices" | "transitions";
 
@@ -125,11 +128,7 @@ export default function StudentDetailsPage() {
   const [transitions, setTransitions] = useState<StudentTransition[]>([]);
   const [tabLoading, setTabLoading] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null);
-
-  const downloadReceipt = (p: Payment) => {
-    setReceiptPayment(p);
-    setTimeout(() => window.print(), 50);
-  };
+  const [invoiceEnrollment, setInvoiceEnrollment] = useState<Enrollment | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated()) { router.push("/admin/login"); return; }
@@ -399,9 +398,20 @@ export default function StudentDetailsPage() {
                       {en.batch_name || "No batch"} &middot; {en.payment_method || "-"} &middot; ৳{en.amount} &middot; {new Date(en.created_at).toLocaleDateString()}
                     </p>
                   </div>
-                  <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border ${enrollmentStatusColors[en.status] || ""}`}>
-                    {en.status}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border ${enrollmentStatusColors[en.status] || ""}`}>
+                      {en.status}
+                    </span>
+                    {en.batch_id && (
+                      <button
+                        onClick={() => setInvoiceEnrollment(en)}
+                        title="Admission invoice"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      >
+                        <Printer className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -434,8 +444,8 @@ export default function StudentDetailsPage() {
                       {p.status}
                     </span>
                     <button
-                      onClick={() => downloadReceipt(p)}
-                      title="Download billing receipt"
+                      onClick={() => setReceiptPayment(p)}
+                      title="Payment receipt"
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                     >
                       <Download className="w-4 h-4" />
@@ -566,64 +576,8 @@ export default function StudentDetailsPage() {
       )}
     </div>
 
-    {/* Printable receipt */}
-    {receiptPayment && (
-      <div className="hidden print:block bg-card rounded-2xl border border-border p-8 space-y-6">
-        <div className="text-center space-y-1">
-          <h2 className="text-lg font-bold text-foreground">EduNova — Payment Receipt</h2>
-          <p className="text-xs text-muted-foreground">{new Date(receiptPayment.created_at).toLocaleString("en-BD")}</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-xs text-muted-foreground">Student</p>
-            <p className="font-medium text-foreground">{receiptPayment.user_name}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Phone</p>
-            <p className="font-medium text-foreground">{receiptPayment.user_mobile}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Course</p>
-            <p className="font-medium text-foreground">{receiptPayment.course_name || "General"}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Receipt No.</p>
-            <p className="font-medium text-foreground">{receiptPayment.receipt_number || `EN-${receiptPayment.id}`}</p>
-          </div>
-        </div>
-
-        <div className="space-y-1 text-sm border-t border-border pt-3">
-          <div className="flex items-center justify-between font-semibold text-foreground">
-            <span>Amount Paid</span>
-            <span>৳{receiptPayment.amount.toLocaleString()}</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 text-sm border-t border-border pt-3">
-          <div>
-            <p className="text-xs text-muted-foreground">Payment Type</p>
-            <p className="font-medium text-foreground capitalize">{receiptPayment.method}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Status</p>
-            <p className="font-medium text-foreground capitalize">{receiptPayment.status}</p>
-          </div>
-          {receiptPayment.month && (
-            <div>
-              <p className="text-xs text-muted-foreground">Billing Period</p>
-              <p className="font-medium text-foreground">{receiptPayment.month} {receiptPayment.year}</p>
-            </div>
-          )}
-          {receiptPayment.transaction_id && (
-            <div>
-              <p className="text-xs text-muted-foreground">Transaction ID</p>
-              <p className="font-medium text-foreground">{receiptPayment.transaction_id}</p>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
+    {receiptPayment && <PaymentReceiptDialog payment={receiptPayment} onClose={() => setReceiptPayment(null)} />}
+    {invoiceEnrollment && <EnrollmentInvoiceDialog enrollment={invoiceEnrollment} onClose={() => setInvoiceEnrollment(null)} />}
 
     {showDelete && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print:hidden" onClick={() => setShowDelete(false)}>

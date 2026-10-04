@@ -22,6 +22,7 @@
     "pdfjs-dist": "^6.3.289",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-easy-crop": "^6.2.3",
     "react-hook-form": "^7.88.0",
     "recharts": "^3.10.1",
     "sonner": "^2.0.8",

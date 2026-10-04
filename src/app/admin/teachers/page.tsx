@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken, getStoredAdmin, isAuthenticated } from "@/lib/auth";
 import { api, type Teacher } from "@/lib/api";
+import { teacherDisplayName, type TeacherGender } from "@/lib/teacher";
 import { Plus, Trash2, RefreshCw, X, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,7 +16,7 @@ export default function TeachersPage() {
   const [showReset, setShowReset] = useState<Teacher | null>(null);
   const [showDelete, setShowDelete] = useState<Teacher | null>(null);
   const [canManage, setCanManage] = useState(false);
-  const [newTeacher, setNewTeacher] = useState({ email: "", password: "", full_name: "" });
+  const [newTeacher, setNewTeacher] = useState({ email: "", password: "", full_name: "", nickname: "", gender: "" as TeacherGender });
   const [resetPassword, setResetPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -54,7 +55,7 @@ export default function TeachersPage() {
       await api.createTeacher(token, newTeacher);
       toast.success("Teacher created");
       setShowCreate(false);
-      setNewTeacher({ email: "", password: "", full_name: "" });
+      setNewTeacher({ email: "", password: "", full_name: "", nickname: "", gender: "" });
       loadTeachers();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create teacher");
@@ -170,7 +171,10 @@ export default function TeachersPage() {
                         </div>
                         <div>
                           <div className="font-medium text-foreground">{teacher.full_name}</div>
-                          <div className="text-xs text-muted-foreground">{teacher.email}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {teacher.email}
+                            {(teacher.nickname || teacher.gender) && <> &middot; {teacherDisplayName(teacher)}</>}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -222,6 +226,33 @@ export default function TeachersPage() {
                   className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Nickname</label>
+                  <input
+                    type="text"
+                    value={newTeacher.nickname}
+                    onChange={(e) => setNewTeacher({ ...newTeacher, nickname: e.target.value })}
+                    placeholder="e.g. তুষার"
+                    className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Gender</label>
+                  <select
+                    value={newTeacher.gender}
+                    onChange={(e) => setNewTeacher({ ...newTeacher, gender: e.target.value as TeacherGender })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    <option value="">Not set</option>
+                    <option value="male">Male (স্যার)</option>
+                    <option value="female">Female (ম্যাম)</option>
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground -mt-2">
+                Shown to students as: <span className="font-medium text-foreground">{teacherDisplayName(newTeacher) || "-"}</span>
+              </p>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
                 <input

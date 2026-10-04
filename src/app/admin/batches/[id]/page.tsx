@@ -20,6 +20,7 @@ import {
   type BatchTeacher,
   type Teacher,
   type BatchSubject,
+  type BatchTeacherHistoryEntry,
   type Subject,
 } from "@/lib/api";
 import {
@@ -48,11 +49,13 @@ import {
   AlertCircle,
   Plus,
   Pencil,
+  Award,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BatchResultsTab } from "./BatchResultsTab";
 
 type BatchStudent = { id: number; full_name: string; mobile: string; student_id: string; user_id: number | null; amount: number; enrolled_by: string; created_at: string };
-type Tab = "about" | "students" | "schedule" | "exam" | "notice" | "teacher" | "leaderboard" | "earnings" | "attendance";
+type Tab = "about" | "students" | "schedule" | "exam" | "notice" | "teacher" | "leaderboard" | "earnings" | "attendance" | "results";
 
 const SCHEDULE_DAYS = ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
 const ROUTINE_DAYS = SCHEDULE_DAYS.filter((d) => d !== "Fri");
@@ -74,11 +77,15 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "schedule", label: "Schedule", icon: <Clock className="w-3.5 h-3.5" /> },
   { key: "earnings", label: "Earnings", icon: <DollarSign className="w-3.5 h-3.5" /> },
   { key: "attendance", label: "Attendance", icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  { key: "results", label: "Results", icon: <Award className="w-3.5 h-3.5" /> },
   { key: "exam", label: "Exam", icon: <GraduationCap className="w-3.5 h-3.5" /> },
   { key: "notice", label: "Notice", icon: <Bell className="w-3.5 h-3.5" /> },
   { key: "teacher", label: "Teacher", icon: <User className="w-3.5 h-3.5" /> },
   { key: "leaderboard", label: "Leaderboard", icon: <Trophy className="w-3.5 h-3.5" /> },
 ];
+
+const formatHistoryDate = (d: string) =>
+  new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
 export default function BatchDetailsPage() {
   const router = useRouter();
@@ -144,6 +151,7 @@ export default function BatchDetailsPage() {
   const [unassigningTeacherId, setUnassigningTeacherId] = useState<number | null>(null);
 
   const [batchSubjects, setBatchSubjects] = useState<BatchSubject[]>([]);
+  const [teacherHistory, setTeacherHistory] = useState<BatchTeacherHistoryEntry[]>([]);
   const [classSubjects, setClassSubjects] = useState<Subject[]>([]);
   const [batchSubjectsLoaded, setBatchSubjectsLoaded] = useState(false);
   const [batchSubjectsLoading, setBatchSubjectsLoading] = useState(false);
@@ -293,12 +301,14 @@ export default function BatchDetailsPage() {
       // when just adding a subject), so scoping this list by class would
       // silently hide subjects that were added but never got a book.
       // Show every subject instead.
-      const [assigned, allSubjects, teachers] = await Promise.all([
+      const [assigned, allSubjects, teachers, history] = await Promise.all([
         batchApi.getBatchSubjects(token, batch.id),
         academicManagementApi.getSubjects(token),
         batchApi.getBatchTeachers(token, batch.id),
+        batchApi.getTeacherHistory(token, batch.id),
       ]);
       setBatchSubjects(assigned);
+      setTeacherHistory(history);
       setClassSubjects(allSubjects);
       setAssignedTeachers(teachers);
       setBatchSubjectsLoaded(true);
@@ -339,8 +349,12 @@ export default function BatchDetailsPage() {
       setSubjectStartTime("");
       setSubjectEndTime("");
       setEditingEntryId(null);
-      const assigned = await batchApi.getBatchSubjects(token, batch.id);
+      const [assigned, history] = await Promise.all([
+        batchApi.getBatchSubjects(token, batch.id),
+        batchApi.getTeacherHistory(token, batch.id),
+      ]);
       setBatchSubjects(assigned);
+      setTeacherHistory(history);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to assign subject");
     } finally {
@@ -373,6 +387,7 @@ export default function BatchDetailsPage() {
     try {
       await batchApi.unassignSubject(token, batch.id, entryId);
       setBatchSubjects((prev) => prev.filter((s) => s.id !== entryId));
+      setTeacherHistory(await batchApi.getTeacherHistory(token, batch.id));
       toast.success("Subject unassigned");
       if (editingEntryId === entryId) cancelEditSubject();
     } catch {
@@ -1048,6 +1063,40 @@ export default function BatchDetailsPage() {
         </div>
       )}
 
+      {/* Teacher history */}
+      {activeTab === "schedule" && teacherHistory.length > 0 && (
+        <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="font-semibold text-foreground">Teacher History</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Who has taught each subject in this batch. Changing a class&apos;s teacher here only affects this batch and keeps the previous teacher on record.
+            </p>
+          </div>
+          <div className="divide-y divide-border">
+            {Object.entries(
+              teacherHistory.reduce<Record<string, BatchTeacherHistoryEntry[]>>((groups, e) => {
+                (groups[e.subject_name] ??= []).push(e);
+                return groups;
+              }, {})
+            ).map(([subject, entries]) => (
+              <div key={subject} className="px-6 py-3">
+                <p className="text-sm font-medium text-foreground mb-1.5">{subject}</p>
+                <ul className="space-y-1">
+                  {entries.map((e) => (
+                    <li key={e.id} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-foreground">{e.teacher_name || "Unassigned"}</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatHistoryDate(e.from_date)} – {e.to_date ? formatHistoryDate(e.to_date) : "Present"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Earnings */}
       {activeTab === "earnings" && (
         <div className="space-y-4">
@@ -1677,6 +1726,8 @@ export default function BatchDetailsPage() {
           </div>
         </div>
       )}
+
+      {activeTab === "results" && batch && <BatchResultsTab batchId={batch.id} />}
 
       {/* Leaderboard */}
       {activeTab === "leaderboard" && (

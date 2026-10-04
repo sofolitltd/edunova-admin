@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getToken, isAuthenticated } from "@/lib/auth";
 import { api, type Teacher } from "@/lib/api";
+import { teacherDisplayName, type TeacherGender } from "@/lib/teacher";
 import { ArrowLeft, Pencil, X, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import ImageUploadField from "@/components/ImageUploadField";
 
 function InfoField({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -21,6 +23,8 @@ const inputClass =
 
 type EditForm = {
   full_name: string;
+  nickname: string;
+  gender: TeacherGender;
   email: string;
   phone: string;
   education: string;
@@ -83,6 +87,8 @@ export default function TeacherDetailsPage() {
     if (!teacher) return;
     setForm({
       full_name: teacher.full_name,
+      nickname: teacher.nickname,
+      gender: teacher.gender,
       email: teacher.email,
       phone: teacher.phone,
       education: teacher.education,
@@ -179,6 +185,8 @@ export default function TeacherDetailsPage() {
 
       <div className="bg-card rounded-2xl border border-border p-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <InfoField label="Nickname" value={teacher.nickname} />
+          <InfoField label="Shown as" value={teacherDisplayName(teacher)} />
           <InfoField label="Phone" value={teacher.phone} />
           <InfoField label="Education" value={teacher.education} />
           <InfoField label="Join Date" value={teacher.join_date ? formatDate(teacher.join_date) : null} />
@@ -205,10 +213,40 @@ export default function TeacherDetailsPage() {
               </button>
             </div>
             <div className="p-6 space-y-4">
+              <p className="text-xs text-warning bg-warning/10 rounded-xl px-3 py-2">
+                This profile is shared by every batch this teacher teaches. To replace a teacher in one batch, create a new teacher and change it in that batch&apos;s routine instead of renaming this profile.
+              </p>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Full Name</label>
                 <input type="text" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className={inputClass} />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Nickname</label>
+                  <input
+                    type="text"
+                    value={form.nickname}
+                    onChange={(e) => setForm({ ...form, nickname: e.target.value })}
+                    placeholder="e.g. তুষার"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Gender</label>
+                  <select
+                    value={form.gender}
+                    onChange={(e) => setForm({ ...form, gender: e.target.value as TeacherGender })}
+                    className={inputClass}
+                  >
+                    <option value="">Not set</option>
+                    <option value="male">Male (স্যার)</option>
+                    <option value="female">Female (ম্যাম)</option>
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground -mt-2">
+                Shown to students as: <span className="font-medium text-foreground">{teacherDisplayName(form) || "-"}</span>
+              </p>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
                 <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inputClass} />
@@ -218,13 +256,11 @@ export default function TeacherDetailsPage() {
                 <input type="text" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={inputClass} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Photo URL</label>
-                <input
-                  type="url"
+                <label className="block text-sm font-medium text-foreground mb-1.5">Photo</label>
+                <ImageUploadField
                   value={form.photo_url}
-                  onChange={(e) => setForm({ ...form, photo_url: e.target.value })}
-                  placeholder="https://..."
-                  className={inputClass}
+                  onChange={(url) => setForm({ ...form, photo_url: url })}
+                  purpose="teacher"
                 />
               </div>
               <div>

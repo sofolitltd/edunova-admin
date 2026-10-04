@@ -1,3 +1,5 @@
+import type { TeacherGender } from "./teacher";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
 interface FetchOptions extends RequestInit {
@@ -331,7 +333,10 @@ export const api = {
   listTeachers: (token: string) =>
     request<Teacher[]>("/admin/teachers", { token }),
 
-  createTeacher: (token: string, data: { email: string; password: string; full_name: string }) =>
+  createTeacher: (
+    token: string,
+    data: { email: string; password: string; full_name: string; nickname: string; gender: TeacherGender }
+  ) =>
     request<Teacher>("/admin/teachers", {
       method: "POST",
       token,
@@ -359,6 +364,8 @@ export const api = {
     id: number,
     data: {
       full_name: string;
+      nickname: string;
+      gender: TeacherGender;
       email: string;
       phone: string;
       education: string;
@@ -390,6 +397,8 @@ export interface Teacher {
   id: number;
   email: string;
   full_name: string;
+  nickname: string;
+  gender: TeacherGender;
   phone: string;
   education: string;
   bio: string;
@@ -416,6 +425,16 @@ export interface BatchSubject {
   days: string[];
   start_time: string;
   end_time: string;
+}
+
+export interface BatchTeacherHistoryEntry {
+  id: number;
+  subject_id: number;
+  subject_name: string;
+  teacher_id: number | null;
+  teacher_name: string;
+  from_date: string;
+  to_date: string | null;
 }
 
 export interface TeacherBatch {
@@ -728,8 +747,16 @@ export interface Enrollment {
   enrolled_by: string;
   batch_id: number | null;
   batch_name: string;
+  fee_breakdown?: FeeBreakdownLine[];
   created_at: string;
   updated_at: string;
+}
+
+export interface FeeBreakdownLine {
+  label: string;
+  amount: number;
+  discount: number;
+  discount_label: string;
 }
 
 export interface CreateEnrollmentPayload {
@@ -778,6 +805,9 @@ export interface Book {
   name: string;
   name_bn: string;
   publisher: string;
+  academic_year: number;
+  is_active: boolean;
+  replaces_book_id: number;
   created_at: string;
 }
 
@@ -944,17 +974,21 @@ export const academicManagementApi = {
     request<{ message: string }>(`/admin/subjects/${id}`, { method: "DELETE", token }),
 
   // Books
-  getBooks: (token: string, subjectId?: number, classId?: number) => {
+  getBooks: (token: string, subjectId?: number, classId?: number, activeOnly?: boolean) => {
     const params = new URLSearchParams();
     if (subjectId) params.set("subject_id", String(subjectId));
     if (classId) params.set("class_id", String(classId));
+    if (activeOnly) params.set("active", "1");
     const qs = params.toString();
     return request<Book[]>(`/admin/books${qs ? `?${qs}` : ""}`, { token });
   },
-  createBook: (token: string, data: { subject_id: number; class_id: number; name: string; name_bn: string; publisher: string }) =>
+  createBook: (token: string, data: { subject_id: number; class_id: number; name: string; name_bn: string; publisher: string; academic_year?: number }) =>
     request<Book>("/admin/books", { method: "POST", body: JSON.stringify(data), token }),
-  updateBook: (token: string, id: number, data: { subject_id: number; class_id: number; name: string; name_bn: string; publisher: string }) =>
+  updateBook: (token: string, id: number, data: { subject_id: number; class_id: number; name: string; name_bn: string; publisher: string; academic_year?: number }) =>
     request<Book>(`/admin/books/${id}`, { method: "PUT", body: JSON.stringify(data), token }),
+  // New edition: copies chapters/topics under a new year and archives the old book.
+  cloneBook: (token: string, id: number, data: { academic_year: number; name?: string; name_bn?: string; publisher?: string }) =>
+    request<Book>(`/admin/books/${id}/clone`, { method: "POST", body: JSON.stringify(data), token }),
   deleteBook: (token: string, id: number) =>
     request<{ message: string }>(`/admin/books/${id}`, { method: "DELETE", token }),
 
@@ -1209,6 +1243,9 @@ export const batchApi = {
   getBatchSubjects: (token: string, batchId: number) =>
     request<BatchSubject[]>(`/admin/batches/${batchId}/subjects`, { token }),
 
+  getTeacherHistory: (token: string, batchId: number) =>
+    request<BatchTeacherHistoryEntry[]>(`/admin/batches/${batchId}/teacher-history`, { token }),
+
   assignSubject: (token: string, batchId: number, data: { subject_id: number; teacher_id: number | null; days: string[]; start_time: string; end_time: string }) =>
     request<{ message: string }>(`/admin/batches/${batchId}/subjects`, {
       method: "POST", body: JSON.stringify(data), token,
@@ -1222,7 +1259,7 @@ export const batchApi = {
   unassignSubject: (token: string, batchId: number, entryId: number) =>
     request<{ message: string }>(`/admin/batches/${batchId}/subjects/${entryId}`, { method: "DELETE", token }),
 
-  directEnroll: (token: string, data: { user_id?: number; mobile: string; course_id: number; batch_id: number; amount: number; full_name?: string; student_id?: string; gender?: string; student_class?: string; school?: string; shift?: string; father_name?: string; father_mobile?: string; mother_name?: string; mother_mobile?: string; notification_mobile?: string; address?: string; payment_method?: string; reference?: string }) =>
+  directEnroll: (token: string, data: { user_id?: number; mobile: string; course_id: number; batch_id: number; amount: number; full_name?: string; student_id?: string; gender?: string; student_class?: string; school?: string; shift?: string; father_name?: string; father_mobile?: string; mother_name?: string; mother_mobile?: string; notification_mobile?: string; address?: string; payment_method?: string; reference?: string; fee_breakdown?: FeeBreakdownLine[] }) =>
     request<Enrollment>("/admin/enrollments/direct", { method: "POST", body: JSON.stringify(data), token }),
 };
 
@@ -1267,6 +1304,7 @@ export interface Holiday {
   id: number;
   date: string;
   reason: string;
+  source: "holiday" | "calendar";
   created_at: string;
 }
 
@@ -1351,6 +1389,8 @@ export interface CalendarEvent {
   created_at: string;
 }
 
+export type LessonKind = "lesson" | "video" | "homework";
+
 export interface Lesson {
   id: number;
   course_id: number;
@@ -1361,8 +1401,13 @@ export interface Lesson {
   description: string;
   subject: string;
   chapter: string;
+  chapter_id: number;
+  topic: string;
+  topic_id: number;
   lesson_date: string;
   teacher_notes: string;
+  kind: LessonKind;
+  link_url: string;
   created_by: number;
   created_at: string;
 }
@@ -1443,12 +1488,57 @@ export const lessonApi = {
     const qs = batchId ? `?batch_id=${batchId}` : "";
     return request<Lesson[]>(`/admin/lessons/today${qs}`, { token });
   },
-  createLesson: (token: string, data: { course_id: number; batch_id?: number; title: string; description?: string; subject?: string; chapter?: string; lesson_date: string; teacher_notes?: string }) =>
+  createLesson: (token: string, data: { course_id: number; batch_id?: number; title: string; description?: string; subject?: string; chapter?: string; chapter_id?: number; topic?: string; topic_id?: number; lesson_date: string; teacher_notes?: string; kind?: LessonKind; link_url?: string }) =>
     request<Lesson>("/admin/lessons", { method: "POST", body: JSON.stringify(data), token }),
-  updateLesson: (token: string, id: number, data: { course_id: number; batch_id?: number; title: string; description?: string; subject?: string; chapter?: string; lesson_date: string; teacher_notes?: string }) =>
+  updateLesson: (token: string, id: number, data: { course_id: number; batch_id?: number; title: string; description?: string; subject?: string; chapter?: string; chapter_id?: number; topic?: string; topic_id?: number; lesson_date: string; teacher_notes?: string; kind?: LessonKind; link_url?: string }) =>
     request<{ message: string }>(`/admin/lessons/${id}`, { method: "PUT", body: JSON.stringify(data), token }),
   deleteLesson: (token: string, id: number) =>
     request<{ message: string }>(`/admin/lessons/${id}`, { method: "DELETE", token }),
+};
+
+export type InvoiceLine = { label: string; note?: string; amount: number; discount: number; discount_label?: string; total: number };
+
+export type Invoice = {
+  id: number;
+  kind: "admission" | "payment";
+  number: string;
+  title: string;
+  issued_at: string;
+  issuer: { name: string; address?: string; phone?: string };
+  student: {
+    name: string; student_id?: string; mobile: string; gender?: string; class?: string; school?: string; shift?: string;
+    father_name?: string; father_mobile?: string; mother_name?: string; mother_mobile?: string; notification_mobile?: string; address?: string;
+  };
+  batch?: { name: string; code?: string; course?: string; shift?: string; class_days?: string[]; class_time?: string };
+  lines: InvoiceLine[];
+  per_line_discount: boolean;
+  subtotal: number;
+  discount: number;
+  discount_percent: number;
+  total: number;
+  amount_in_words: string;
+  payment: { method?: string; reference?: string; billing_month?: string };
+  issued_by?: string;
+  paid: boolean;
+};
+
+export const invoiceApi = {
+  forEnrollment: (token: string, id: number) => request<Invoice>(`/admin/enrollments/${id}/invoice`, { token }),
+  forPayment: (token: string, id: number) => request<Invoice>(`/admin/payments/${id}/invoice`, { token }),
+  // The window is opened before the request so the popup blocker still sees a user gesture.
+  openPdf: async (token: string, id: number, copies: "single" | "double") => {
+    const win = window.open("", "_blank");
+    try {
+      const res = await fetch(`${API_BASE}/admin/invoices/${id}/pdf?copies=${copies}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "Failed to generate PDF");
+      const url = URL.createObjectURL(await res.blob());
+      if (win) win.location.href = url;
+      else window.location.href = url;
+    } catch (err) {
+      win?.close();
+      throw err;
+    }
+  },
 };
 
 export const paymentApi = {
@@ -1468,6 +1558,11 @@ export const paymentApi = {
     request<{ message: string }>(`/admin/payments/${id}/reject`, { method: "PUT", token }),
   deletePayment: (token: string, id: number) =>
     request<{ message: string }>(`/admin/payments/${id}`, { method: "DELETE", token }),
+};
+
+export const uploadApi = {
+  presign: (token: string, data: { purpose: "article" | "teacher"; content_type: string; size: number }) =>
+    request<{ upload_url: string; public_url: string }>("/admin/uploads/presign", { method: "POST", body: JSON.stringify(data), token }),
 };
 
 export const articleApi = {
@@ -1615,6 +1710,7 @@ export interface Result {
   marks_total: number;
   percentage: number;
   remarks: string;
+  absent: boolean;
   created_at: string;
 }
 
@@ -1628,6 +1724,14 @@ export interface ResultInput {
   remarks?: string;
 }
 
+export interface BulkResultInput {
+  subject: string;
+  exam_name: string;
+  exam_date: string;
+  marks_total: number;
+  rows: { user_id: number; marks_obtained: number; absent?: boolean; remarks?: string }[];
+}
+
 export const resultApi = {
   getResults: (token: string, userId?: number, batchId?: number) => {
     const params = new URLSearchParams();
@@ -1636,6 +1740,8 @@ export const resultApi = {
     const qs = params.toString();
     return request<Result[]>(`/admin/results${qs ? `?${qs}` : ""}`, { token });
   },
+  bulkCreateResults: (token: string, data: BulkResultInput) =>
+    request<{ saved: number }>("/admin/results/bulk", { method: "POST", body: JSON.stringify(data), token }),
   createResult: (token: string, data: ResultInput) =>
     request<{ id: number }>("/admin/results", { method: "POST", body: JSON.stringify(data), token }),
   updateResult: (token: string, id: number, data: ResultInput) =>

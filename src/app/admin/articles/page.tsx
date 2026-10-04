@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getToken, isAuthenticated } from "@/lib/auth";
 import { articleApi, type Article } from "@/lib/api";
 import { toast } from "sonner";
+import ImageUploadField from "@/components/ImageUploadField";
 import {
   Plus,
   Edit,
@@ -436,16 +437,13 @@ export default function ArticlesPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">
-                    Image URL
+                    Image
                   </label>
-                  <input
-                    type="url"
+                  <ImageUploadField
                     value={form.image_url}
-                    onChange={(e) =>
-                      setForm({ ...form, image_url: e.target.value })
-                    }
-                    placeholder="https://..."
-                    className="w-full px-3 py-2.5 rounded-xl bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    onChange={(url) => setForm({ ...form, image_url: url })}
+                    purpose="article"
+                    aspect={16 / 9}
                   />
                 </div>
               </div>
